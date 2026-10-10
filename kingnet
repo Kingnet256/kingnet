@@ -415,6 +415,24 @@ def cmd_install(args):
         err(f"Install failed: {e}")
 
 
+def cmd_update(args):
+    banner()
+    if not (ROOT / ".git").exists():
+        err("This isn't a git checkout — update by re-cloning the repo.")
+        return
+    say("\n  Pulling the latest KINGNET from GitHub…")
+    r = subprocess.run(["git", "-C", str(ROOT), "pull", "--ff-only"], capture_output=True, text=True)
+    out = (r.stdout + r.stderr).strip()
+    if r.returncode != 0:
+        err(out or "git pull failed")
+        return
+    if "Already up to date" in out:
+        ok("Already on the latest version.")
+    else:
+        print("  " + out.replace("\n", "\n  "))
+        ok("Updated! " + col("Now exit and relaunch `kingnet`", "c") + " so the new version loads.")
+
+
 def cmd_setup(args):
     banner()
     if have_docker():
@@ -1079,6 +1097,7 @@ CONSOLE_CMDS = [
     ("missions", "missions  ·  `contracts` for the story"),
     ("contracts", "the story campaign"),
     ("status", "what's running right now"),
+    ("update", "pull my latest changes from GitHub (then relaunch)"),
     ("hosts", "map lab domains into your browser.  `hosts install`"),
     ("clear", "clear the screen"),
     ("help", "this list  (`help <command>` for detail)"),
@@ -1097,23 +1116,33 @@ _ART = r"""
 # readline-safe coloured prompt (\001/\002 mark non-printing bytes so the width is right)
 PROMPT = "\001\033[1;35m\002kingnet\001\033[0m\002 \001\033[1;36m\002❯\001\033[0m\002 "
 
-# The KINGNET crest — a block-character rendering of the Kingnet256 GitHub avatar
-# (a symmetric identicon). Tan (#d7af87) to match the original.
-_TAN = "\033[38;5;180m"
-_LOGO_ROWS = [
-    "  ██  ██  ",
-    "  ██████  ",
-    "    ██    ",
-    "██  ██  ██",
-    "  ██████  ",
+# The KINGNET mask — an ANSI rendering of the Anonymous / Guy Fawkes profile image,
+# in neon green (generated from the source image, mirrored for symmetry).
+_GREEN = "\033[38;5;46m"
+_MASK = [
+    "        ████████      ████████",
+    "       ███████  ██████  ███████",
+    "             ████    ████",
+    "        ███   ████  ████   ███",
+    "      ████████████  ████████████",
+    "                ██  ██",
+    "",
+    "          ██              ██",
+    "        ████   ████████   ████",
+    "        ████████  ██  ████████",
+    "         █████████  █████████",
+    "            ██████  ██████",
+    "                ██  ██",
+    "                 █  █",
+    "                 █  █",
 ]
 
 
 def _logo():
-    pad = " " * 26
+    pad = " " * 12
     if C["0"]:
-        return "\n".join(pad + _TAN + r + "\033[0m" for r in _LOGO_ROWS)
-    return "\n".join(pad + r for r in _LOGO_ROWS)
+        return "\n".join(pad + _GREEN + r + "\033[0m" for r in _MASK)
+    return "\n".join(pad + r for r in _MASK)
 
 
 def _rule(w=62):
@@ -1162,6 +1191,9 @@ class KingnetConsole(_cmdmod.Cmd):
 
     def do_down(self, a):
         cmd_down(_ns())
+
+    def do_update(self, a):
+        cmd_update(_ns())
 
     def do_banner(self, a):
         print(_console_banner(load_state(), _console_summary()))
@@ -1352,6 +1384,7 @@ def build_parser():
     add("doctor", cmd_doctor, "check prerequisites (Python, Docker)")
     add("setup", cmd_setup, "install Docker automatically (Debian/Kali/Fedora/Arch)")
     add("install", cmd_install, "put `kingnet` on your PATH so you can run it anywhere")
+    add("update", cmd_update, "pull the latest KINGNET from GitHub (git pull)")
     add("up", cmd_up, "build images + start the base lab (attacker console)")
     add("down", cmd_down, "stop all KINGNET containers (keeps your world state)")
     add("status", cmd_status, "show wallet, orgs and campaigns at a glance")
@@ -1414,7 +1447,7 @@ def cmd_help(args):
     if not topic:
         banner()
         say("\n  " + col("COMMANDS", "B"))
-        groups = [("Start here", ["console", "play", "setup", "install", "doctor"]),
+        groups = [("Start here", ["console", "play", "setup", "install", "update", "doctor"]),
                   ("Set up", ["up", "down", "status", "world", "hosts"]),
                   ("Economy", ["wallet", "market", "buy", "missions", "mission"]),
                   ("Attack", ["targets", "phish", "sessions", "hijack"]),
