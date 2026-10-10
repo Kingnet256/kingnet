@@ -13,6 +13,7 @@ detected, then watch it fail completely against a passkey. Everything is lab-onl
 | 5 | [Passkeys defeat AiTM (KingVault)](05-passkeys-defeat-aitm.md) | the same attack fails on origin binding |
 | 6 | [OAuth consent phishing](06-oauth-consent-phishing.md) | an attack that needs no password at all — and how to shut it down |
 | 7 | [Banking AiTM (KingBank)](07-banking-aitm.md) | account takeover → the account gets drained, and what limits it |
+| 8 | [Stealing the session without a proxy](08-cookie-theft-variants.md) | XSS vs infostealer cookie theft, HttpOnly, and device-bound sessions |
 
 > These lessons are also the basis for the public write-ups on kasspar.com. The lab
 > itself must never be pointed at a real service — see the top-level README and LICENSE.

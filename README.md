@@ -56,6 +56,7 @@ mailbox, so the lesson sticks — and then shows why passkeys/FIDO2 make the sam
 | `scripts/passkey_test.sh` | Docker-free proof that the passkey target resists the same proxy: honest login succeeds, the relayed assertion is rejected on origin mismatch. |
 | `scripts/oauth_test.sh` | Docker-free proof of the OAuth consent-phishing scenario: no creds phished, then visibility / revoke / policy-block defenses. |
 | `scripts/bank_test.sh` | Docker-free proof of the KingBank scenario: phish → stolen session drains the account → detection + step-up catch/stop it. |
+| `scripts/cookie_theft_test.sh` | Docker-free proof of the cookie-theft variants: stored XSS (HttpOnly + encoding defend) and an infostealer (device-bound sessions defend). Needs `node`. |
 | `lessons/` | Guided walkthroughs (attack → detection → passkeys → consent phishing), also the basis for the kasspar.com write-ups. |
 
 ## Quick start
@@ -98,6 +99,7 @@ python3 -m venv .venv
 ./scripts/passkey_test.sh     # KingVault: proves the passkey defeats the same proxy
 ./scripts/oauth_test.sh       # OAuth consent phishing + defenses
 ./scripts/bank_test.sh        # KingBank: stolen session drains the account; defenses stop it
+./scripts/cookie_theft_test.sh # XSS + infostealer cookie theft; HttpOnly / encoding / DBSC defend
 ```
 
 Both scripts are the project's smoke tests — they exit non-zero if any stage breaks.
@@ -115,7 +117,7 @@ Both scripts are the project's smoke tests — they exit non-zero if any stage b
 - **Phase 0 — ✅ done:** design, scaffold, lab-only framing, license.
 - **Phase 1 — ✅ done:** full KingMail AiTM scenario end-to-end (login + OTP → capture + session hijack), verified by `scripts/local_test.sh`.
 - **Phase 2 — ✅ done:** the defense half — a passkey/FIDO2 target (`KingVault`) KINGNET **cannot** phish (verified by `scripts/passkey_test.sh`), detection signals on KingMail (new device / impossible travel / token reuse, at `/security`), and guided `lessons/`.
-- **Phase 3 — in progress:** ✅ real browser-driven WebAuthn for KingVault; ✅ **OAuth consent-phishing scenario** (`oauth-app/` + KingMail as IdP, with visibility / revoke / policy-block defenses); ✅ **KingBank** scenario (AiTM → stolen session drains the account, with detection + step-up defenses, verified by `scripts/bank_test.sh`). Still to do: cookie-theft variants, and publishing the lessons on kasspar.com.
+- **Phase 3 — in progress:** ✅ real browser-driven WebAuthn for KingVault; ✅ **OAuth consent-phishing scenario** (`oauth-app/` + KingMail as IdP, with visibility / revoke / policy-block defenses); ✅ **KingBank** scenario (AiTM → stolen session drains the account, with detection + step-up defenses); ✅ **cookie-theft variants** (stored XSS + infostealer, with HttpOnly / output-encoding / device-bound-session defenses, verified by `scripts/cookie_theft_test.sh`). Still to do: publishing the lessons on kasspar.com.
 
 ## License
 

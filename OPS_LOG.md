@@ -1,6 +1,14 @@
 # KINGNET — Ops / Work Log
 _Newest on top. See DESIGN.md for the full plan._
 
+### 2026-10-10 — Phase 3 item 4: cookie-theft variants ✅
+- **Two ways to steal the session WITHOUT the AiTM proxy, each with its defense**, all on KingMail.
+- **Variant 1 — stored XSS:** added a reflected `status` (POST `/status`, shown on `/inbox`), rendered unescaped via `Markup` unless `XSS_SAFE` is on, plus a deliberately **non-HttpOnly** `kingmail_prefs` cookie. A real `<script>` payload runs in a lab browser (`scripts/_xss_browser.js`, Node, with `document.cookie` = non-HttpOnly cookies only) and exfiltrates to the console drop server. Result: it steals `kingmail_prefs` but the **HttpOnly session is invisible**. Defense: `/admin/xss-safe` escapes the payload → nothing runs.
+- **Variant 2 — infostealer:** `scripts/stealer.py` reads a browser cookie-store JSON (incl. the HttpOnly session) and exfiltrates it — HttpOnly doesn't help against endpoint malware. Replay = takeover. Defense: **device-bound sessions** — `BIND_POLICY` + `/device/bind` register a device key (kept in memory, NOT a cookie); `current_user` then requires a matching `X-Device-Key`, so a copied cookie is refused off-device.
+- **Console:** added `/steal` (GET+POST drop server) and `/stolen` (added `JSONResponse` import).
+- **Test:** `scripts/cookie_theft_test.sh` + `_cookie_theft.py` — both variants + both defenses, asserted. **PASS.** Regression: `local_test.sh` (16/16) and `oauth_test.sh` (14/14) still pass. No new Docker services (reuses kingmail+console). Lesson `08-cookie-theft-variants.md` added.
+- **Status:** Phase 3 attack catalog COMPLETE (browser WebAuthn, OAuth consent phishing, KingBank, cookie-theft variants). Only remaining KINGNET work: publish the lessons on kasspar.com — **awaiting explicit user go (outward-facing)**. To be committed + pushed.
+
 ### 2026-10-10 — Phase 3 item 3: KingBank AiTM scenario ✅
 - **`targets/kingbank/`** — a lab online bank: password+TOTP login, signed `kingbank_session`, a real balance (R75,000), payees, and `/pay` transfers that actually move money. Templates (login/otp/dashboard/security) + Dockerfile + requirements. Reuses the fingerprint-detection idea for fraud alerts; `/admin/policy` toggles a per-transaction step-up defense; `/phone` shows the code.
 - **Proxy:** `SESSION_COOKIE_NAME` is now env-configurable (default `kingmail_session`) — a generic config, not scenario logic — so the same proxy steals `kingbank_session`. Cred/OTP capture already matched KingBank's field names.

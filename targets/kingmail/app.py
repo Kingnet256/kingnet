@@ -17,6 +17,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
+from markupsafe import Markup
 
 SECRET = os.environ.get("KINGMAIL_SECRET", "kingnet-lab-kingmail-secret")
 SESSION_COOKIE = "kingmail_session"
@@ -28,9 +29,20 @@ PENDING_COOKIE = "kingmail_pending"
 # each session at issuance and raise alerts when the SAME cookie shows up from a new
 # fingerprint (new device / impossible travel / token reuse from two endpoints).
 # `X-Lab-Geo` is a lab stand-in for a real GeoIP lookup; absent = the victim's ISP.
-SESSIONS: dict[str, dict] = {}   # sid -> {email, created, fps: [fingerprint,...]}
+SESSIONS: dict[str, dict] = {}   # sid -> {email, created, fps: [fingerprint,...], devkey?}
 ALERTS: list[dict] = []          # newest first
 LAB_DEFAULT_GEO = os.environ.get("KINGMAIL_DEFAULT_GEO", "Johannesburg, ZA")
+
+# ---- Phase 3 cookie-theft variants (stealing the session WITHOUT the AiTM proxy) ----
+# STATUSES: a user-set "status" reflected on the inbox. When XSS_SAFE is off it is rendered
+#   unescaped -> stored XSS. The payoff: injected JS reads document.cookie. The HttpOnly
+#   session cookie is invisible to JS, but a careless non-HttpOnly cookie (kingmail_prefs) is not.
+# BIND_POLICY: device-bound sessions (a lab DBSC / token-binding). When on, a session that has
+#   registered a device key is only honoured with a matching X-Device-Key header — so a cookie
+#   copied off the machine by an infostealer is useless elsewhere.
+STATUSES: dict[str, str] = {}
+XSS_SAFE = {"on": os.environ.get("KINGMAIL_XSS_SAFE", "") not in ("", "0", "false")}
+BIND_POLICY = {"on": os.environ.get("KINGMAIL_BIND_SESSIONS", "") not in ("", "0", "false")}
 
 # Seeded lab "victim" account. TOTP secret is fixed so the student can read codes
 # from /phone (their simulated authenticator). All lab-only, obviously.
@@ -75,6 +87,11 @@ def current_user(request: Request):
     email, sid = val.split("|", 1)
     if email not in USERS or sid not in SESSIONS:
         return None
+    # Device-bound session: once a device key is registered, the cookie alone is not enough —
+    # the request must prove possession of the key (which never left the real device).
+    if BIND_POLICY["on"] and SESSIONS[sid].get("devkey"):
+        if request.headers.get("x-device-key") != SESSIONS[sid]["devkey"]:
+            return None
     return email, sid
 
 
@@ -161,6 +178,9 @@ def otp(request: Request, code: str = Form(...)):
     SESSIONS[sid] = {"email": email, "created": time.time(), "fps": [_client_fp(request)]}
     resp = RedirectResponse("/inbox", status_code=302)
     resp.set_cookie(SESSION_COOKIE, _sign(f"{email}|{sid}"), httponly=True, samesite="lax", max_age=3600)
+    # A careless convenience cookie: NOT HttpOnly, so page JS (and an XSS) can read it.
+    # The session above stays HttpOnly — that difference is the whole XSS lesson.
+    resp.set_cookie("kingmail_prefs", f"theme=dark;uid={email}", httponly=False, samesite="lax", max_age=3600)
     resp.delete_cookie(PENDING_COOKIE)
     return resp
 
@@ -173,8 +193,13 @@ def inbox(request: Request):
     email, sid = cu
     alerts = _record_access(sid, request)  # flags a hijack replay from a new client
     u = USERS[email]
+    # Reflected status: safe mode lets Jinja auto-escape it; unsafe mode marks it safe,
+    # so a <script> payload renders raw (stored XSS).
+    raw = STATUSES.get(email, "")
+    status = raw if XSS_SAFE["on"] else Markup(raw)
     return tpl.TemplateResponse(request, "inbox.html",
-                                {"email": email, "name": u["name"], "mails": u["inbox"], "alerts": alerts})
+                                {"email": email, "name": u["name"], "mails": u["inbox"],
+                                 "alerts": alerts, "status": status})
 
 
 @app.get("/security", response_class=HTMLResponse)
@@ -332,3 +357,43 @@ async def admin_consent_policy(request: Request):
     body = await request.json()
     POLICY["block_unverified"] = bool(body.get("block_unverified"))
     return {"block_unverified": POLICY["block_unverified"]}
+
+
+# ---- Cookie-theft variant surfaces (Phase 3) ------------------------------
+
+@app.post("/status")
+def set_status(request: Request, status: str = Form(...)):
+    """Set the mailbox status shown on /inbox. Unescaped unless XSS-safe mode is on."""
+    cu = current_user(request)
+    if not cu:
+        return RedirectResponse("/login", status_code=302)
+    email, _ = cu
+    STATUSES[email] = status
+    return RedirectResponse("/inbox", status_code=302)
+
+
+@app.post("/device/bind")
+def device_bind(request: Request):
+    """Register a device-bound key for this session (lab DBSC). The key is returned in the
+    body and kept by the device in memory — it is NOT a cookie, so cookie theft can't grab it."""
+    cu = current_user(request)
+    if not cu:
+        return JSONResponse({"error": "not authenticated"}, status_code=401)
+    _, sid = cu
+    key = uuid.uuid4().hex
+    SESSIONS[sid]["devkey"] = key
+    return {"device_key": key}
+
+
+@app.post("/admin/xss-safe")
+async def admin_xss_safe(request: Request):
+    body = await request.json()
+    XSS_SAFE["on"] = bool(body.get("safe"))
+    return {"xss_safe": XSS_SAFE["on"]}
+
+
+@app.post("/admin/bind-policy")
+async def admin_bind_policy(request: Request):
+    body = await request.json()
+    BIND_POLICY["on"] = bool(body.get("bind"))
+    return {"bind_sessions": BIND_POLICY["on"]}

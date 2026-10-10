@@ -28,6 +28,7 @@
   </div>
   {% endif %}
   <div class="banner">✅ You are logged in as <b>{{ name }}</b>. This session is proven by your <code>kingmail_session</code> cookie — the exact thing an AiTM attacker steals.</div>
+  {% if status %}<div class="mail" style="background:#f8f9fb"><div class="av">☰</div><div><div class="subj">Your status</div><div class="body">{{ status }}</div></div></div>{% endif %}
   {% for mm in mails %}
    <div class="mail"><div class="av">{{ mm.from[0]|upper }}</div><div>
      <div class="subj">{{ mm.subj }}</div><div class="from">{{ mm.from }}</div><div class="body">{{ mm.body }}</div>
