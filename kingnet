@@ -43,6 +43,7 @@ HOSTS_PATH = os.environ.get("KINGNET_HOSTS", "/etc/hosts")
 HOSTS_BEGIN = "# >>> KINGNET lab (managed) >>>"
 HOSTS_END = "# <<< KINGNET lab (managed) <<<"
 START_COINS = 1000
+VERSION = "v1.0"
 
 
 def web_url(domain, path=""):
@@ -1191,7 +1192,8 @@ def _console_banner(s, sm):
                  + col(" (live) \u00b7 ", "d") + col("lures", "c") + col(" \u00b7 ", "d")
                  + col("hijack", "c") + col(" \u00b7 ", "d") + col("exit", "c"))
     return "\n".join([_header(), "",
-                      col("   phishing operator console \u00b7 lab-only", "d"), "",
+                      col("   phishing operator console \u00b7 lab-only", "d"),
+                      "   " + col("by Kasspar Kingnet", "r") + col("   " + VERSION, "d"), "",
                       _status_table(s, sm), "", help_line, ""])
 
 
