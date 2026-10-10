@@ -38,7 +38,7 @@ mailbox, so the lesson sticks — and then shows why passkeys/FIDO2 make the sam
 ## The safety boundary (this is the whole point)
 
 - **Techniques are real and fully functional** — credential capture, live OTP relay, session-cookie theft, session hijack.
-- **Targets are KINGNET's own bundled lab services** (`KingMail`, with `KingBank` and a passkey target coming) — never real external sites.
+- **Targets are KINGNET's own bundled lab services** (`KingMail`, `KingBank`, and the passkey-protected `KingVault`) — never real external sites.
 - **The proxy is hard-constrained in code.** On startup it refuses any upstream that isn't a loopback / private / `*.lab` host (`proxy/app.py` → `_assert_lab_only`). There is deliberately **no** feature to add an arbitrary real target.
 - Everything binds to `127.0.0.1` only and runs on an isolated Docker network — it is never exposed to your LAN or the internet.
 
