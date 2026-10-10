@@ -85,7 +85,13 @@ The core loop — every org and campaign gets a **real lab domain** you open in 
 ./kingnet defend acme-mail.kingnet.lab --control device-binding on   # turn on a defense
 ./kingnet wallet   &&   ./kingnet missions              # coins + objectives
 ./kingnet world                                         # live dashboard: level/XP, orgs, campaigns, loot
+./kingnet contracts                                     # the story campaign: 5 contracts with rewards + unlocks
 ```
+
+**Progression:** you start with only **KingMail** unlocked. Completing **Contract 1** (capture
+a session) unlocks **KingBank** and **KingVault** in the market. The five contracts walk you
+through the whole arc — foothold → account takeover → the bank job → hitting the passkey wall →
+switching to defense — and complete automatically as you play, paying out KingCoins and XP.
 
 A bundled **lab router** serves every `*.kingnet.lab` domain on port 80 and `kingnet hosts`
 points those names at `127.0.0.1` — so the phishing site really is a different origin from the

@@ -109,11 +109,35 @@ MISSIONS = {
     "defender": ("Stand up a KingVault passkey target (an attack-proof org)", 250),
 }
 
+# Which orgs are gated behind a story contract (None = always available).
+UNLOCK = {"kingmail": None, "kingbank": "recon", "kingvault": "recon"}
+
+# The story arc — sequential "contracts" that turn the sandbox into a campaign.
+# (id, title, brief, objective, reward). Completion is auto-detected from real play.
+CONTRACTS = [
+    ("recon", "Contract 1 · Get a foothold",
+     "A client wants into ACME's mail. Stand up a KingMail org, phish a victim through the proxy, and lift a live session cookie.",
+     "Capture a session cookie", 200),
+    ("takeover", "Contract 2 · Own the inbox",
+     "A session cookie is as good as the password. Replay it and open the mailbox with no login.",
+     "Hijack a victim's session", 250),
+    ("heist", "Contract 3 · The bank job",
+     "Bigger money. Stand up KingBank, phish it, and move funds with the stolen session until the fraud trips the bank's alarms.",
+     "Trigger a fraud alert on a KingBank org", 500),
+    ("the-wall", "Contract 4 · Hit the wall",
+     "Every serious target eventually turns on passkeys. Point your proxy at a KingVault org and watch the relay bounce off the origin check.",
+     "Get a passkey login rejected", 300),
+    ("blue-team", "Contract 5 · Switch sides",
+     "Now defend. Turn on a control (device-binding, step-up or consent policy) on one of your orgs — the same attack should now fail.",
+     "Enable a defense on an org", 400),
+]
+
 
 # ---- world state -----------------------------------------------------------
 def default_state():
     return {"coins": START_COINS, "xp": 0, "ledger": [], "orgs": {}, "campaigns": {},
-            "missions": {}, "next_port": 8081, "next_pport": 8443, "created": time.time()}
+            "missions": {}, "contracts": [], "defenses_used": [],
+            "next_port": 8081, "next_pport": 8443, "created": time.time()}
 
 
 def level_of(xp):
@@ -163,6 +187,58 @@ def complete_mission(s, key):
         print(col(f"\n🏅 Mission complete — {title}  +{reward} KC  +{reward} XP", "g"))
         if level_of(s["xp"]) > before:
             print(col(f"⭐ Level up! You are now level {level_of(s['xp'])}.", "m"))
+
+
+def _unlocked(s, slug):
+    u = UNLOCK.get(slug)
+    return u is None or u in s.get("contracts", [])
+
+
+def _bank_fraud_detected(s):
+    """True if any KingBank org is showing a fraud alert (a stolen-session drain happened)."""
+    for dom, o in s.get("orgs", {}).items():
+        if o.get("type") != "kingbank" or not container_running(o["container"]):
+            continue
+        st, body = http(f"http://localhost:{o['port']}/security")
+        if st == 200 and isinstance(body, str) and ("suspicious payment" in body.lower() or "new payee" in body.lower()):
+            return True
+    return False
+
+
+def _contract_satisfied(s, cid, sm):
+    if cid == "recon":
+        return bool(sm) and sm.get("cookies", 0) >= 1
+    if cid == "takeover":
+        return "account-takeover" in s.get("missions", {})
+    if cid == "heist":
+        return _bank_fraud_detected(s)
+    if cid == "the-wall":
+        return bool(sm) and sm.get("webauthn_rejected", 0) >= 1
+    if cid == "blue-team":
+        return len(s.get("defenses_used", [])) > 0
+    return False
+
+
+def _check_contracts(s, sm="__none__"):
+    """Auto-complete any newly-satisfied contracts; award coins + XP. Returns new ids."""
+    if sm == "__none__":
+        sm = _console_summary()
+    newly = []
+    for cid, title, _brief, _obj, reward in CONTRACTS:
+        if cid in s.get("contracts", []):
+            continue
+        if _contract_satisfied(s, cid, sm):
+            s.setdefault("contracts", []).append(cid)
+            earn(s, reward, f"contract: {title}")
+            before = level_of(s.get("xp", 0))
+            award_xp(s, reward)
+            print(col(f"\n📜 Contract complete — {title}  +{reward} KC  +{reward} XP", "g"))
+            if level_of(s["xp"]) > before:
+                print(col(f"⭐ Level up! You are now level {level_of(s['xp'])}.", "m"))
+            if cid == "recon":
+                print(col("   Unlocked in the market: KingBank and KingVault.", "c"))
+            newly.append(cid)
+    return newly
 
 
 # ---- docker helpers --------------------------------------------------------
@@ -305,14 +381,20 @@ def cmd_wallet(args):
 
 
 def cmd_market(args):
+    s = load_state()
     banner()
-    say(f"\n  {col('MARKETPLACE', 'B')}   (you have {coin(load_state()['coins'])})\n")
+    say(f"\n  {col('MARKETPLACE', 'B')}   (you have {coin(s['coins'])})\n")
     say("  " + col("Target organisations", "B") + col("  — buy one, give it a lab domain, and attack it", "d"))
     for slug, o in ORGS.items():
-        say(f"    {col(slug, 'c'):<22} {coin(o['price'])}  {col('+ ' + str(DOMAIN_FEE) + ' domain', 'd')}")
+        if _unlocked(s, slug):
+            tag = f"{coin(o['price'])}  {col('+ ' + str(DOMAIN_FEE) + ' domain', 'd')}"
+        else:
+            tag = col(f"🔒 locked — finish contract '{UNLOCK[slug]}'", "d")
+        say(f"    {col(slug, 'c'):<22} {tag}")
         say(f"      {col(o['name'], 'B')} — {o['blurb']}")
     say("\n  Buy:  " + col("kingnet buy <org> --domain <name>.kingnet.lab", "c"))
     say("  e.g.  " + col("kingnet buy kingmail --domain acme-mail.kingnet.lab", "d"))
+    say("  Story: " + col("kingnet contracts", "c") + col("  (your campaign, with rewards + unlocks)", "d"))
 
 
 def _norm_domain(d):
@@ -340,6 +422,9 @@ def cmd_buy(args):
     slug = args.item
     if slug not in ORGS:
         err(f"Unknown item '{slug}'. See {col('kingnet market', 'c')}.")
+        return
+    if not _unlocked(s, slug):
+        err(f"{ORGS[slug]['name']} is locked. Finish contract '{UNLOCK[slug]}' first — see {col('kingnet contracts', 'c')}.")
         return
     if not args.domain:
         err("Pick a lab domain: --domain <name>.kingnet.lab")
@@ -544,7 +629,8 @@ def cmd_sessions(args):
     s = load_state()
     if sm["cookies"] >= 1:
         complete_mission(s, "session-thief")
-        save_state(s)
+    _check_contracts(s, sm)
+    save_state(s)
     say(f"\n  Full live view + one-click hijack: {col(web_url(CONSOLE_DOMAIN), 'b')}  (or http://localhost:{CONSOLE_PORT}/)")
 
 
@@ -567,9 +653,12 @@ def cmd_world(args):
         live = col("● running", "g") if c.get("running") and container_running(c["container"]) else col("○ stopped", "d")
         say(f"    {live}  {col(c.get('phish_domain', c['target']), 'r')} → {col(c['phish_url'], 'b')}")
     sm = _console_summary()
+    _check_contracts(s, sm)
+    save_state(s)
     if sm:
         say(f"\n  {col('Loot', 'B')}:  creds {col(sm['credentials'], 'g')}  ·  2FA {col(sm['otps'], 'g')}  ·  "
             f"cookies {col(sm['cookies'], 'y')}  ·  passkey-rejected {col(sm.get('webauthn_rejected', 0), 'r')}")
+    say(f"\n  {col('Story', 'B')}:  contracts {len(s.get('contracts', []))}/{len(CONTRACTS)}   ({col('kingnet contracts', 'c')})")
     # suggest the next action
     if not s["orgs"]:
         step = "kingnet buy kingmail --domain acme-mail.kingnet.lab"
@@ -586,7 +675,7 @@ def cmd_hijack(args):
     status, data = http(f"http://localhost:{CONSOLE_PORT}/hijack/{args.track}")
     if status == 200 and isinstance(data, str) and ("Signed in as" in data or "Wire approval" in data):
         ok("Session hijacked — opened the victim's account with no password and no 2FA.")
-        s = load_state(); complete_mission(s, "account-takeover"); save_state(s)
+        s = load_state(); complete_mission(s, "account-takeover"); _check_contracts(s); save_state(s)
     else:
         warn("Could not hijack that track (need a captured session cookie). "
              "Open the console to pick a victim: http://localhost:%d/" % CONSOLE_PORT)
@@ -612,6 +701,10 @@ def cmd_defend(args):
         return
     st, resp = http(base + ep, method="POST", data=payload)
     (ok if st == 200 else err)(f"{otype} {dom}: {args.control or 'policy'} → {'ON' if want else 'OFF'}  ({resp})")
+    if st == 200 and want:
+        s.setdefault("defenses_used", []).append(f"{dom}:{args.control or 'policy'}")
+        _check_contracts(s)
+        save_state(s)
 
 
 def cmd_missions(args):
@@ -639,6 +732,28 @@ def cmd_mission(args):
         save_state(s)
 
 
+def cmd_contracts(args):
+    s = load_state()
+    sm = _console_summary()
+    _check_contracts(s, sm)
+    save_state(s)
+    banner()
+    done = s.get("contracts", [])
+    say(f"\n  {col('STORY — your contracts', 'B')}   ({len(done)}/{len(CONTRACTS)} complete)\n")
+    for cid, title, brief, obj, reward in CONTRACTS:
+        if cid in done:
+            say(f"   {col('✓ done', 'g')}   {col(title, 'B')}   {col('+' + str(reward) + ' KC', 'd')}")
+        else:
+            say(f"   {col('○ open', 'y')}   {col(title, 'B')}   {col('+' + str(reward) + ' KC', 'y')}")
+            say(f"          {col(brief, 'd')}")
+            say(f"          {col('Objective: ' + obj, 'c')}")
+    if len(done) == len(CONTRACTS):
+        say(col("\n  🏆 All contracts complete — you've run the full attack → defense arc. Respect.", "g"))
+    else:
+        say(col("\n  Contracts complete automatically as you play. Start with: ", "d")
+            + col("kingnet buy kingmail --domain acme-mail.kingnet.lab", "c"))
+
+
 def cmd_tutorial(args):
     banner()
     steps = [
@@ -655,7 +770,9 @@ def cmd_tutorial(args):
     for n, what, how in steps:
         say(f"   {col(n, 'c')}  {what}")
         say(f"      {col(how, 'd')}")
-    say(f"\n  Everything has help: {col('kingnet help <command>', 'c')}  or  {col('kingnet <command> --help', 'c')}")
+    say(f"\n  Follow the story: {col('kingnet contracts', 'c')} (5 contracts, rewards + unlocks) · "
+        f"dashboard: {col('kingnet world', 'c')}")
+    say(f"  Everything has help: {col('kingnet help <command>', 'c')}  or  {col('kingnet <command> --help', 'c')}")
 
 
 def cmd_reset(args):
@@ -741,6 +858,7 @@ def build_parser():
     mi.add_argument("action", choices=["claim"])
     mi.add_argument("id", help="mission id (see `kingnet missions`)")
 
+    add("contracts", cmd_contracts, "your story campaign — contracts, rewards and unlocks")
     add("tutorial", cmd_tutorial, "a guided first campaign, step by step")
     rs = add("reset", cmd_reset, "wipe your world and start over")
     rs.add_argument("--yes", action="store_true", help="confirm the reset")
@@ -759,6 +877,7 @@ def cmd_help(args):
         groups = [("Set up", ["doctor", "up", "down", "status", "world", "hosts"]),
                   ("Economy", ["wallet", "market", "buy", "missions", "mission"]),
                   ("Attack", ["targets", "phish", "sessions", "hijack"]),
+                  ("Story", ["contracts"]),
                   ("Defend / learn", ["defend", "tutorial"]),
                   ("Admin", ["reset", "help"])]
         acts = {a.dest: a for a in parser._subparsers._group_actions} if False else None

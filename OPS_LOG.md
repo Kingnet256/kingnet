@@ -1,6 +1,12 @@
 # KINGNET — Ops / Work Log
 _Newest on top. See DESIGN.md for the full plan._
 
+### 2026-10-10 — Phase 4 #3: story/progression layer (contracts + unlocks)
+- **`kingnet contracts`** — a 5-contract story arc that turns the sandbox into a campaign: foothold → own the inbox → the bank job → hit the passkey wall → switch sides (defend). Each has narrative + reward (KC + XP) and **auto-completes from real play** (`_check_contracts` wired into sessions/hijack/defend/world): recon=cookie captured, takeover=account-takeover mission, heist=KingBank `/security` shows a fraud alert (real drain detection), the-wall=a passkey attempt was rejected, blue-team=a defense was enabled.
+- **Gating/unlocks:** only **KingMail** is available at the start; finishing **Contract 1 (recon)** unlocks **KingBank** + **KingVault** in the market. `buy` refuses locked orgs; `market` shows the lock.
+- `defend` now records `defenses_used`; `world` shows a Story line; tutorial/README point at `contracts`. Verified: market lock display, buy-refusal when locked, contracts arc view, and the unlock path (inject recon → bank/vault buyable). `kingnet` parses clean; Story group in `help`.
+- **Phase 4 so far: a cohesive game loop** — economy → marketplace (gated) → real lab domains → campaigns → sessions/hijack → defend → missions + 5-contract story → XP/levels → `world` dashboard. Still open: more org types/services, `kingnet watch` live feed, a demo GIF.
+
 ### 2026-10-10 — Phase 4 #2 + #4: auto mission detection + `kingnet world` dashboard
 - **Console `/api/summary`** — machine-readable capture counts (victims/credentials/otps/cookies/webauthn_rejected/exfils + per-track has_cookie/user) for the CLI.
 - **`kingnet sessions`** rewritten to read that summary: shows the loot and the victims with a stolen session (`kingnet hijack <track>`), and **auto-completes the `session-thief` mission** when a cookie is captured. (`first-blood` on phish, `defender` on KingVault buy, `account-takeover` on a successful hijack were already auto.)
