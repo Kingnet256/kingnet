@@ -1097,13 +1097,31 @@ _ART = r"""
 # readline-safe coloured prompt (\001/\002 mark non-printing bytes so the width is right)
 PROMPT = "\001\033[1;35m\002kingnet\001\033[0m\002 \001\033[1;36m\002❯\001\033[0m\002 "
 
+# The KINGNET crest — a block-character rendering of the Kingnet256 GitHub avatar
+# (a symmetric identicon). Tan (#d7af87) to match the original.
+_TAN = "\033[38;5;180m"
+_LOGO_ROWS = [
+    "  ██  ██  ",
+    "  ██████  ",
+    "    ██    ",
+    "██  ██  ██",
+    "  ██████  ",
+]
+
+
+def _logo():
+    pad = " " * 26
+    if C["0"]:
+        return "\n".join(pad + _TAN + r + "\033[0m" for r in _LOGO_ROWS)
+    return "\n".join(pad + r for r in _LOGO_ROWS)
+
 
 def _rule(w=62):
     return col("  " + "─" * w, "line") if "line" in C else "  " + "─" * w
 
 
 def _console_banner(s, sm):
-    out = [col(_ART, "c"),
+    out = [_logo(), col(_ART, "c"),
            col("   adversary-in-the-middle · phishing operator console · LAB ONLY", "d"), ""]
     lab = col("● LAB LIVE", "g") if sm else col("● LAB OFFLINE", "r") + col("  — type ", "d") + col("up", "c")
     nlures = len([c for c in s["campaigns"].values() if c.get("running")])
