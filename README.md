@@ -34,6 +34,20 @@ git clone https://github.com/Kingnet256/kingnet && cd kingnet
 provisions your first target org and launches a phishing campaign — then prints your mission
 (open the link, sign in as the victim, capture the session, take over the account). That's it.
 
+**Then run the operator console** — one interactive app (like `./evilginx`):
+
+```bash
+./kingnet            # opens the KINGNET console:  kingnet »
+```
+```
+kingnet » help                 # all commands
+kingnet » lures                # your phishing links
+kingnet » lures create acme-mail.kingnet.lab
+kingnet » sessions follow      # LIVE feed: creds, 2FA, cookies stream in as victims log in
+kingnet » hijack <track>       # take over a captured session
+kingnet » lures test acme-mail.kingnet.lab   # prove capture works (no browser needed)
+```
+
 Prefer to drive it yourself? The individual commands:
 
 ```bash

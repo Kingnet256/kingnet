@@ -1,6 +1,11 @@
 # KINGNET — Ops / Work Log
 _Newest on top. See DESIGN.md for the full plan._
 
+### 2026-10-10 — Phase 4: interactive operator console (evilginx-style single app)
+- **User feedback:** separate one-shot commands feel like a demo; evilginx opens ONE interactive console (prompt, create lures, see sessions, help, everything in one app). Also their checkout was BEHIND origin (had router+contracts but not setup/play/phish-test/signup) → `git pull` needed; origin/main was verified current.
+- **`kingnet console`** (and bare `./kingnet` on a TTY) opens an interactive REPL (`cmd.Cmd`): prompt `kingnet » `, banner with wallet/orgs/lures/loot, grouped `help`. Commands: `sessions [follow]`, `lures [create|stop|test]`, `hijack <track>`, `targets`, `market`, `buy <org> <domain>`, `defend <domain> <control> on|off`, `world`, `wallet`, `missions`, `contracts`, `status`, `hosts`, `clear`, `exit`. Reuses the existing cmd_* via Namespaces. Verified via piped input (help/market/buy/lures/world/exit all work; buy+phish complete mission).
+- README get-started now shows `./kingnet` opening the console with the live `sessions follow` feed and `lures test` self-check.
+
 ### 2026-10-10 — Phase 4 realism: terminal operator console, capture self-test, KingMail signup
 - **User feedback:** the build felt like toys; browser login via the lure "captured nothing"; wanted a real terminal phishing console (create links, see live sessions/cookies) + signup-able real apps. **Key constraint acknowledged:** I can't run Docker/a real browser here, so the browser→router capture path is the one thing I can't exercise — hence bugs that slip past my tests.
 - **Terminal operator console:** console `/api/captures` (full creds/otp/cookie per victim). `kingnet sessions` now prints the actual username/password/2FA/cookie + the hijack command; `kingnet sessions --follow` streams captures live (evilginx-style). **Verified** end-to-end via venv (drove a proxy login → `/api/captures` returned full data → `kingnet sessions` showed it + auto-completed mission/contract).

@@ -1043,6 +1043,165 @@ def cmd_play(args):
     say(f"\n   Dashboard: {col(PROG + ' world', 'c')}   ·   Story: {col(PROG + ' contracts', 'c')}   ·   Help: {col(PROG + ' help', 'c')}")
 
 
+import cmd as _cmdmod
+import shlex
+
+
+def _ns(**kw):
+    return argparse.Namespace(**kw)
+
+
+CONSOLE_CMDS = [
+    ("sessions", "captured sessions — creds / 2FA / cookies.   `sessions follow` = live feed"),
+    ("lures", "phishing links.   `lures` · `lures create <org>` · `lures stop <id>` · `lures test <org>`"),
+    ("hijack", "take over a captured session.   `hijack <track>`"),
+    ("targets", "your target organisations"),
+    ("market", "what you can buy"),
+    ("buy", "provision an org.   `buy kingmail acme-mail.kingnet.lab`"),
+    ("defend", "turn on a defense.   `defend <domain> <control> on|off`"),
+    ("world", "live dashboard (level, orgs, lures, loot)"),
+    ("wallet", "KingCoins balance"),
+    ("missions", "missions  ·  `contracts` for the story"),
+    ("contracts", "the story campaign"),
+    ("status", "what's running right now"),
+    ("hosts", "map lab domains into your browser.  `hosts install`"),
+    ("clear", "clear the screen"),
+    ("help", "this list  (`help <command>` for detail)"),
+    ("exit", "leave the console"),
+]
+
+
+class KingnetConsole(_cmdmod.Cmd):
+    prompt = col("kingnet » ", "m")
+
+    def emptyline(self):
+        pass
+
+    def default(self, line):
+        err(f"unknown command: {line.split()[0] if line.split() else ''}. type `help`.")
+
+    def do_help(self, arg):
+        print(col("\n  KINGNET OPERATOR CONSOLE — commands\n", "B"))
+        for name, desc in CONSOLE_CMDS:
+            print(f"    {col(name, 'c'):<22} {col(desc, 'd')}")
+        print()
+
+    # --- live ops ---------------------------------------------------------
+    def do_sessions(self, a):
+        p = shlex.split(a)
+        cmd_sessions(_ns(follow=("follow" in p or "-f" in p or "live" in p)))
+
+    def do_lures(self, a):
+        p = shlex.split(a)
+        if not p or p[0] in ("list", "ls"):
+            _list_lures()
+        elif p[0] in ("create", "new", "start"):
+            if len(p) < 2:
+                err("usage: lures create <org-domain> [phish-domain]")
+                return
+            cmd_phish(_ns(phish_cmd="start", target=p[1], phish_domain=(p[2] if len(p) > 2 else None)))
+        elif p[0] == "stop":
+            cmd_phish(_ns(phish_cmd="stop", id=(p[1] if len(p) > 1 else "")))
+        elif p[0] == "test":
+            cmd_phish(_ns(phish_cmd="test", target=(p[1] if len(p) > 1 else None)))
+        else:
+            err("usage: lures [create <org> | stop <id> | test <org>]")
+
+    def do_hijack(self, a):
+        if not a.strip():
+            err("usage: hijack <track>   (see `sessions`)")
+            return
+        cmd_hijack(_ns(track=a.strip()))
+
+    def do_defend(self, a):
+        p = shlex.split(a)
+        if len(p) < 2:
+            err("usage: defend <domain> <control> [on|off]   control = step-up|device-binding|xss-safe|consent-policy")
+            return
+        cmd_defend(_ns(target=p[0], control=p[1], state=(p[2] if len(p) > 2 else "on")))
+
+    # --- economy / world --------------------------------------------------
+    def do_targets(self, a):
+        cmd_targets(_ns())
+
+    def do_orgs(self, a):
+        cmd_targets(_ns())
+
+    def do_market(self, a):
+        cmd_market(_ns())
+
+    def do_buy(self, a):
+        p = shlex.split(a)
+        if len(p) < 2:
+            err("usage: buy <org> <domain>   e.g. buy kingmail acme-mail.kingnet.lab")
+            return
+        cmd_buy(_ns(item=p[0], domain=p[1]))
+
+    def do_world(self, a):
+        cmd_world(_ns())
+
+    def do_wallet(self, a):
+        cmd_wallet(_ns())
+
+    def do_missions(self, a):
+        cmd_missions(_ns())
+
+    def do_contracts(self, a):
+        cmd_contracts(_ns())
+
+    def do_status(self, a):
+        cmd_status(_ns())
+
+    def do_hosts(self, a):
+        p = shlex.split(a)
+        cmd_hosts(_ns(hosts_cmd=(p[0] if p else "show")))
+
+    def do_clear(self, a):
+        os.system("cls" if os.name == "nt" else "clear")
+
+    def do_exit(self, a):
+        print("  bye.")
+        return True
+
+    do_quit = do_exit
+
+    def do_EOF(self, a):
+        print()
+        return True
+
+
+def _list_lures():
+    s = load_state()
+    live = [c for c in s["campaigns"].values() if c.get("running")]
+    if not live:
+        say(col("  no active lures. create one:  lures create <org-domain>", "d"))
+        return
+    say(col("\n  ACTIVE LURES (phishing links)\n", "B"))
+    for cid, c in s["campaigns"].items():
+        if not c.get("running"):
+            continue
+        say(f"    {col(cid, 'm')}   {col(c['phish_url'], 'r')}")
+        say(f"           → relays the real {col(c['target'], 'c')}   (stop: lures stop {cid})")
+    say("")
+
+
+def cmd_console(args):
+    s = load_state()
+    sm = _console_summary()
+    loot = (f"{sm['cookies']} cookies · {sm['credentials']} creds" if sm else "console offline (run `up`)")
+    nlures = len([c for c in s["campaigns"].values() if c.get("running")])
+    con = KingnetConsole()
+    con.intro = (
+        "\n" + col("  ⚡ KINGNET", "c") + col("  — operator console", "d") +
+        f"\n  wallet {coin(s['coins'])}   ·   orgs {len(s['orgs'])}   ·   lures {nlures}   ·   loot {loot}" +
+        "\n  type " + col("help", "c") + " for commands, " + col("sessions follow", "c") +
+        " for a live feed, " + col("exit", "c") + " to quit\n")
+    try:
+        con.cmdloop()
+    except KeyboardInterrupt:
+        print("\n  bye.")
+
+
 def cmd_tutorial(args):
     banner()
     steps = [
@@ -1105,6 +1264,7 @@ def build_parser():
         sp.set_defaults(func=fn)
         return sp
 
+    add("console", cmd_console, "open the interactive operator console (one app — like evilginx)")
     add("play", cmd_play, "ONE command: start the lab + your first live phishing campaign")
     add("doctor", cmd_doctor, "check prerequisites (Python, Docker)")
     add("setup", cmd_setup, "install Docker automatically (Debian/Kali/Fedora/Arch)")
@@ -1171,7 +1331,7 @@ def cmd_help(args):
     if not topic:
         banner()
         say("\n  " + col("COMMANDS", "B"))
-        groups = [("Start here", ["play", "setup", "install", "doctor"]),
+        groups = [("Start here", ["console", "play", "setup", "install", "doctor"]),
                   ("Set up", ["up", "down", "status", "world", "hosts"]),
                   ("Economy", ["wallet", "market", "buy", "missions", "mission"]),
                   ("Attack", ["targets", "phish", "sessions", "hijack"]),
@@ -1205,7 +1365,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     DRY = getattr(args, "dry_run", False)
     if not getattr(args, "cmd", None):
-        cmd_help(argparse.Namespace(topic=None))
+        # bare `./kingnet` opens the interactive console (like `./evilginx`); piped → help
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            cmd_console(args)
+        else:
+            cmd_help(argparse.Namespace(topic=None))
         return
     args.func(args)
 
