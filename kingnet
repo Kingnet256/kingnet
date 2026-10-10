@@ -1106,14 +1106,17 @@ CONSOLE_CMDS = [
 
 
 _WORDMARK = [
-    " _  ___                        _   ",
-    "| |/ (_)                      | |  ",
-    "| ' / _ _ __   __ _ _ __   ___| |_ ",
-    "|  < | | '_ \\ / _` | '_ \\ / _ \\ __|",
-    "| . \\| | | | | (_| | | | |  __/ |_ ",
-    "|_|\\_\\_|_| |_|\\__, |_| |_|\\___|\\__|",
-    "               __/ |               ",
-    "              |___/                ",
+    "888    d8P d8b                                888    ",
+    "888   d8P  Y8P                                888    ",
+    "888  d8P                                      888    ",
+    "888d88K    88888888b.  .d88b. 88888b.  .d88b. 888888 ",
+    "8888888b   888888 \"88bd88P\"88b888 \"88bd8P  Y8b888    ",
+    "888  Y88b  888888  888888  888888  88888888888888    ",
+    "888   Y88b 888888  888Y88b 888888  888Y8b.    Y88b.  ",
+    "888    Y88b888888  888 \"Y88888888  888 \"Y8888  \"Y888 ",
+    "                           888                       ",
+    "                      Y8b d88P                       ",
+    "                       \"Y88P\"                        ",
 ]
 
 # readline-safe coloured prompt (\001/\002 mark non-printing bytes so the width is right)
@@ -1157,23 +1160,42 @@ def _rule(w=62):
     return col("  " + "─" * w, "line") if "line" in C else "  " + "─" * w
 
 
+def _status_table(s, sm):
+    lvl = level_of(s.get("xp", 0))
+    cols = [
+        ("STATUS", "LAB LIVE" if sm else "OFFLINE", "g" if sm else "r"),
+        ("LEVEL", str(lvl), "m"),
+        ("WALLET", f"{s['coins']:,} KC", "y"),
+        ("ORGS", str(len(s["orgs"])), "c"),
+        ("LURES", str(len([c for c in s["campaigns"].values() if c.get("running")])), "c"),
+        ("COOKIES", str(sm["cookies"]) if sm else "-", "g"),
+        ("CREDS", str(sm["credentials"]) if sm else "-", "y"),
+    ]
+    w = [max(len(h), len(v)) + 2 for h, v, _ in cols]
+
+    def cell(t, width, cn):
+        tot = width - len(t); l = tot // 2
+        return " " * l + col(t, cn) + " " * (tot - l)
+
+    V = col("\u2502", "b")
+
+    def rule(a, m, z):
+        return "  " + col(a + m.join("\u2500" * x for x in w) + z, "b")
+
+    hdr = "  " + V + V.join(cell(h, x, "d") for (h, _, _), x in zip(cols, w)) + V
+    val = "  " + V + V.join(cell(v, x, cc) for (_, v, cc), x in zip(cols, w)) + V
+    return "\n".join([rule("\u250c", "\u252c", "\u2510"), hdr,
+                      rule("\u251c", "\u253c", "\u2524"), val,
+                      rule("\u2514", "\u2534", "\u2518")])
+
+
 def _console_banner(s, sm):
-    out = [_header(),
-           col("   adversary-in-the-middle · phishing operator console · LAB ONLY", "d"), ""]
-    lab = col("● LAB LIVE", "g") if sm else col("● LAB OFFLINE", "r") + col("  — type ", "d") + col("up", "c")
-    nlures = len([c for c in s["campaigns"].values() if c.get("running")])
-    loot = (f"{col(sm['cookies'], 'g')}🍪  {col(sm['credentials'], 'y')}🔑  "
-            f"{col(sm.get('webauthn_rejected', 0), 'r')}🛡" if sm else col("—", "d"))
-    bar = col("  ╭" + "─" * 60, "b")
-    end = col("  ╰" + "─" * 60, "b")
-    B = col("  │ ", "b")
-    out += [bar,
-            B + f"{lab}     level {col(level_of(s.get('xp', 0)), 'm')}     {coin(s['coins'])}",
-            B + f"orgs {col(len(s['orgs']), 'c')}   ·   lures {col(nlures, 'c')}   ·   loot {loot}",
-            B + col("help", "c") + col(" · ", "d") + col("sessions follow", "c")
-              + col(" (live feed) · ", "d") + col("lures", "c") + col(" · ", "d") + col("exit", "c"),
-            end, ""]
-    return "\n".join(out)
+    help_line = ("   type " + col("help", "c") + col(" \u00b7 ", "d") + col("sessions follow", "c")
+                 + col(" (live) \u00b7 ", "d") + col("lures", "c") + col(" \u00b7 ", "d")
+                 + col("hijack", "c") + col(" \u00b7 ", "d") + col("exit", "c"))
+    return "\n".join([_header(), "",
+                      col("   phishing operator console \u00b7 lab-only", "d"), "",
+                      _status_table(s, sm), "", help_line, ""])
 
 
 class KingnetConsole(_cmdmod.Cmd):
