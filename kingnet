@@ -1116,43 +1116,28 @@ _ART = r"""
 # readline-safe coloured prompt (\001/\002 mark non-printing bytes so the width is right)
 PROMPT = "\001\033[1;35m\002kingnet\001\033[0m\002 \001\033[1;36m\002❯\001\033[0m\002 "
 
-# The KINGNET mask — the Anonymous / Guy Fawkes profile image rendered on a black panel
-# with a neon glow (4 colour tiers). Tier grid generated from the source image; coloured
-# at runtime so the CLI stays dependency-free. 0 = black background.
-_MASK_TIERS = [
-    "0000000000000000000000000011110000000000",
-    "0000000022333333210000123222233310000000",
-    "0000000243333322233222322333322330000000",
-    "0000000000001234322212344321000000000000",
-    "0000000112322224443213443222232133000000",
-    "0000003444322223444113444322234444000000",
-    "0000002222333332233003434444333211000000",
-    "0000000000000000121002222222211000000000",
-    "0000000000001111110000112233221000000000",
-    "0000000023343101333223232123443200000000",
-    "0000000034233323322332233234324300000000",
-    "0000000003433332223332223322243100000000",
-    "0000000000234444432112344344431000000000",
-    "0000000000011233443002333322100000000000",
-    "0000000000000000134003321000000000000000",
-    "0000000000000000014003200000000000000000",
-    "0000000000000000003203100000000000000000",
-    "0000000000000000000111000000000000000000",
+# The KINGNET crest — the Kingnet256 identicon, in tan, shown to the LEFT of the wordmark.
+_TAN = "\033[38;5;180m"
+_CREST = [
+    "  ██  ██  ",
+    "  ██████  ",
+    "    ██    ",
+    "██  ██  ██",
+    "  ██████  ",
 ]
-_BG = "\033[48;2;0;0;0m"
-_TIER_FG = {"1": "\033[38;5;28m", "2": "\033[38;5;46m", "3": "\033[38;5;118m", "4": "\033[38;5;231m"}
 
 
-def _logo():
-    pad = " " * 11
-    if not C["0"]:
-        return "\n".join(pad + "".join("█" if c in "234" else " " for c in row) for row in _MASK_TIERS)
+def _header():
+    art = [l for l in _ART.split("\n") if l.strip()]
+    n = len(art)
+    top = (n - len(_CREST)) // 2
+    crest = [""] * top + _CREST + [""] * (n - len(_CREST) - top)
+    tan = _TAN if C["0"] else ""
+    cyan = "\033[1;36m" if C["0"] else ""
+    rst = "\033[0m" if C["0"] else ""
     out = []
-    for row in _MASK_TIERS:
-        line = pad + _BG
-        for c in row:
-            line += (_TIER_FG[c] + "█") if c in _TIER_FG else " "
-        out.append(line + "\033[0m")
+    for i in range(n):
+        out.append("  " + tan + crest[i].ljust(10) + rst + "   " + cyan + art[i].lstrip() + rst)
     return "\n".join(out)
 
 
@@ -1161,7 +1146,7 @@ def _rule(w=62):
 
 
 def _console_banner(s, sm):
-    out = [_logo(), col(_ART, "c"),
+    out = [_header(),
            col("   adversary-in-the-middle · phishing operator console · LAB ONLY", "d"), ""]
     lab = col("● LAB LIVE", "g") if sm else col("● LAB OFFLINE", "r") + col("  — type ", "d") + col("up", "c")
     nlures = len([c for c in s["campaigns"].values() if c.get("running")])
