@@ -137,6 +137,19 @@ def root(request: Request):
     return RedirectResponse("/login", status_code=302)
 
 
+def _issue_session(email: str, request: Request):
+    """Mint the real session cookie (the prize an AiTM attacker steals) + record the
+    device/location so a later replay from a new machine can be spotted."""
+    sid = uuid.uuid4().hex
+    SESSIONS[sid] = {"email": email, "created": time.time(), "fps": [_client_fp(request)]}
+    resp = RedirectResponse("/inbox", status_code=302)
+    resp.set_cookie(SESSION_COOKIE, _sign(f"{email}|{sid}"), httponly=True, samesite="lax", max_age=3600)
+    # A careless convenience cookie: NOT HttpOnly, so page JS (and an XSS) can read it.
+    resp.set_cookie("kingmail_prefs", f"theme=dark;uid={email}", httponly=False, samesite="lax", max_age=3600)
+    resp.delete_cookie(PENDING_COOKIE)
+    return resp
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_form(request: Request, error: str = ""):
     return tpl.TemplateResponse(request, "login.html", {"error": error})
@@ -144,14 +157,36 @@ def login_form(request: Request, error: str = ""):
 
 @app.post("/login")
 def login(request: Request, email: str = Form(...), password: str = Form(...)):
-    u = USERS.get(email)
+    u = USERS.get(email.strip().lower())
+    email = email.strip().lower()
     if not u or u["password"] != password:
-        return tpl.TemplateResponse(request, "login.html", {"error": "Incorrect email or password."}, status_code=401
-        )
-    # password OK -> require 2FA. Stash a short-lived pending token.
-    resp = RedirectResponse("/otp", status_code=302)
-    resp.set_cookie(PENDING_COOKIE, _sign(email), httponly=True, samesite="lax", max_age=300)
-    return resp
+        return tpl.TemplateResponse(request, "login.html", {"error": "Incorrect email or password."}, status_code=401)
+    if u.get("totp"):
+        # this account has 2FA -> require it (this is the account the AiTM lesson relays)
+        resp = RedirectResponse("/otp", status_code=302)
+        resp.set_cookie(PENDING_COOKIE, _sign(email), httponly=True, samesite="lax", max_age=300)
+        return resp
+    return _issue_session(email, request)        # password-only accounts sign straight in
+
+
+@app.get("/register", response_class=HTMLResponse)
+def register_form(request: Request, error: str = ""):
+    return tpl.TemplateResponse(request, "register.html", {"error": error})
+
+
+@app.post("/register")
+def register(request: Request, email: str = Form(...), password: str = Form(...), name: str = Form("")):
+    email = email.strip().lower()
+    if "@" not in email or not password:
+        return tpl.TemplateResponse(request, "register.html",
+                                    {"error": "Enter a valid email and a password."}, status_code=400)
+    if email in USERS:
+        return tpl.TemplateResponse(request, "register.html",
+                                    {"error": "That account already exists — sign in instead."}, status_code=400)
+    USERS[email] = {"password": password, "name": name.strip() or email.split("@")[0], "totp": None,
+                    "inbox": [{"from": "team@kingmail.lab", "subj": "Welcome to KingMail",
+                               "body": "Your mailbox is ready. (Lab account, created just now.)"}]}
+    return _issue_session(email, request)         # signed in right after signup
 
 
 @app.get("/otp", response_class=HTMLResponse)
@@ -172,17 +207,7 @@ def otp(request: Request, code: str = Form(...)):
     if not totp.verify(code, valid_window=1):
         return tpl.TemplateResponse(request, "otp.html", {"error": "Invalid or expired code."}, status_code=401
         )
-    # 2FA OK -> issue the real session cookie (the prize an AiTM attacker steals).
-    # Record the issuing device/location so a later replay can be spotted.
-    sid = uuid.uuid4().hex
-    SESSIONS[sid] = {"email": email, "created": time.time(), "fps": [_client_fp(request)]}
-    resp = RedirectResponse("/inbox", status_code=302)
-    resp.set_cookie(SESSION_COOKIE, _sign(f"{email}|{sid}"), httponly=True, samesite="lax", max_age=3600)
-    # A careless convenience cookie: NOT HttpOnly, so page JS (and an XSS) can read it.
-    # The session above stays HttpOnly — that difference is the whole XSS lesson.
-    resp.set_cookie("kingmail_prefs", f"theme=dark;uid={email}", httponly=False, samesite="lax", max_age=3600)
-    resp.delete_cookie(PENDING_COOKIE)
-    return resp
+    return _issue_session(email, request)        # 2FA OK -> issue the session
 
 
 @app.get("/inbox", response_class=HTMLResponse)
@@ -217,15 +242,16 @@ def logout():
 
 
 @app.get("/phone", response_class=HTMLResponse)
-def phone(request: Request):
-    """Simulated authenticator app — shows the victim's current code so the
-    student (playing the victim) knows what to type during the lesson."""
-    email = "victim@kingmail.lab"
-    totp = pyotp.TOTP(USERS[email]["totp"])
-    code = totp.now()
+def phone(request: Request, email: str = "victim@kingmail.lab"):
+    """Simulated authenticator app — shows an account's current 2FA code."""
+    u = USERS.get(email.strip().lower())
+    if not u or not u.get("totp"):
+        return HTMLResponse("<body style='font:18px sans-serif;text-align:center;padding:40px'>"
+                            f"<h3>KingMail Authenticator</h3><p><b>{email}</b> has no 2FA set up — "
+                            "sign in with just your password.</p></body>")
+    code = pyotp.TOTP(u["totp"]).now()
     remaining = 30 - int(time.time()) % 30
-    return tpl.TemplateResponse(request, "phone.html", {"code": code, "remaining": remaining, "email": email}
-    )
+    return tpl.TemplateResponse(request, "phone.html", {"code": code, "remaining": remaining, "email": email})
 
 
 # ===========================================================================
