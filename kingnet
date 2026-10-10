@@ -34,7 +34,7 @@ STATE_DIR = ROOT / ".kingnet"
 STATE_FILE = STATE_DIR / "world.json"
 NETWORK = "kingnet-lab"
 CONSOLE_NAME = "kn-console"
-CONSOLE_PORT = 9000
+CONSOLE_PORT = int(os.environ.get("KINGNET_CONSOLE_PORT", "9000"))
 CONSOLE_DOMAIN = "console.kingnet.lab"
 ROUTER_NAME = "kn-router"
 ROUTER_IMAGE = "kingnet/router"
@@ -692,6 +692,73 @@ def cmd_hosts(args):
             ok(f"Removed the KINGNET block from {HOSTS_PATH}.")
 
 
+def _phish_self_test(s, args):
+    """Drive a victim login THROUGH the phishing proxy from inside the lab, then confirm
+    the console captured it. Proves the pipeline works independently of your browser."""
+    import http.cookiejar
+    import re as _re
+    import urllib.parse
+    import urllib.request
+    banner()
+    dom = _norm_domain(args.target) if getattr(args, "target", None) else None
+    camps = [c for c in s["campaigns"].values()
+             if c.get("running") and (dom is None or c["target"] == dom)]
+    if not camps:
+        err(f"No running campaign to test. Start one:  {PROG} phish start --target <domain>")
+        return
+    c = camps[0]; target = c["target"]; o = s["orgs"].get(target)
+    if not o:
+        err("Campaign target org not found in your world.")
+        return
+    otype = o["type"]
+    if otype == "kingvault":
+        warn("KingVault uses passkeys — there is nothing to capture (that's the lesson).")
+        return
+    creds = {"kingmail": ("victim@kingmail.lab", "Summer2026!"),
+             "kingbank": ("victim@kingbank.lab", "Autumn2026!")}[otype]
+    base = f"http://localhost:{c['port']}"           # the phishing proxy
+    orgbase = f"http://localhost:{o['port']}"        # the real org (for its /phone code)
+    say(col(f"\n  Simulating a victim login through {col(c['phish_url'], 'b')} …", "B"))
+    cj = http.cookiejar.CookieJar()
+    op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+
+    def _get(u):
+        with op.open(u, timeout=15) as r:
+            return r.read().decode("utf-8", "ignore")
+
+    def _post(u, d):
+        req = urllib.request.Request(u, data=urllib.parse.urlencode(d).encode())
+        with op.open(req, timeout=15) as r:
+            return r.read().decode("utf-8", "ignore")
+
+    try:
+        _get(base + "/login")
+        _post(base + "/login", {"email": creds[0], "password": creds[1]})
+        code = _re.search(r"\b(\d{6})\b", _get(orgbase + "/phone"))
+        if not code:
+            err("Couldn't read the live OTP from the org's /phone page.")
+            return
+        _post(base + "/otp", {"code": code.group(1)})
+    except Exception as e:
+        err(f"Simulated login failed (is the campaign + console up?): {e}")
+        return
+    time.sleep(1.0)
+    hit = [x for x in (_captures() or []) if x.get("username") == creds[0]]
+    gc = any(x.get("username") for x in hit)
+    go = any(x.get("otp") for x in hit)
+    gk = any(x.get("cookie") for x in hit)
+    (ok if gc else err)("credentials captured" if gc else "credentials NOT captured")
+    (ok if go else err)("2FA code captured" if go else "2FA code NOT captured")
+    (ok if gk else err)("session cookie captured" if gk else "session cookie NOT captured")
+    if gc and go and gk:
+        say(col("\n  ✅ The capture pipeline works in this deployment.", "g"))
+        say(f"  If your own browser login captured nothing, you likely used the REAL org URL.")
+        say(f"  Use the PHISHING link:  {col(c['phish_url'], 'b')}   (NOT {web_url(target)})")
+    else:
+        say(col("\n  ✗ Capture is broken in this deployment. Check: is the attacker console running,", "r"))
+        say(col("    and can the proxy reach it (CONSOLE_URL)?  Try `kingnet status`.", "r"))
+
+
 def cmd_phish(args):
     s = load_state()
     if args.phish_cmd == "start":
@@ -739,6 +806,8 @@ def cmd_phish(args):
         c["running"] = False
         save_state(s)
         ok(f"Stopped campaign {args.id}.")
+    elif args.phish_cmd == "test":
+        _phish_self_test(s, args)
 
 
 def _console_summary():
@@ -746,32 +815,75 @@ def _console_summary():
     return sm if (st == 200 and isinstance(sm, dict)) else None
 
 
-def cmd_sessions(args):
+def _captures():
+    st, data = http(f"http://localhost:{CONSOLE_PORT}/api/captures")
+    return data.get("captures", []) if (st == 200 and isinstance(data, dict)) else None
+
+
+def _follow_sessions():
     banner()
-    sm = _console_summary()
-    if not sm:
-        warn(f"Console not reachable on :{CONSOLE_PORT} — run `kingnet up`, then start a campaign and sign in as the victim.")
+    say(col("\n  ⚡ LIVE phishing feed — captures stream in as victims log in.  (Ctrl+C to stop)\n", "B"))
+    seen = {}
+    try:
+        while True:
+            caps = _captures()
+            if caps is None:
+                warn(f"console not reachable on :{CONSOLE_PORT} — is the lab up?")
+                time.sleep(3); continue
+            for c in caps:
+                t = c["track"]; a = seen.setdefault(t, set()); ts = time.strftime("%H:%M:%S")
+                if c.get("username") and "cred" not in a:
+                    a.add("cred")
+                    print(col(f"  [{ts}] 🎣 CREDS   ", "y") + f"{c['username']} / {c.get('password', '')}" + col(f"   ({t})", "d"))
+                if c.get("otp") and "otp" not in a:
+                    a.add("otp")
+                    print(col(f"  [{ts}] 🔑 2FA     ", "y") + f"{c['otp']}  " + col("← relayed live, 2FA defeated", "d"))
+                if c.get("cookie") and "cookie" not in a:
+                    a.add("cookie"); ck = c["cookie"]
+                    print(col(f"  [{ts}] 🍪 SESSION ", "g") + f"{ck.get('cookie_name')}={str(ck.get('cookie_value'))[:46]}…")
+                    print(col("             ", "d") + col("→ full account takeover available: ", "g") + col(f"{PROG} hijack {t}", "c"))
+                    s = load_state(); complete_mission(s, "session-thief"); _check_contracts(s); save_state(s)
+                if c.get("webauthn") and "wa" not in a:
+                    a.add("wa")
+                    print(col(f"  [{ts}] 🛡  PASSKEY ", "r") + f"REJECTED (bound to {c['webauthn'].get('bound_origin')}) — phishing-resistant")
+            time.sleep(2)
+    except KeyboardInterrupt:
+        say("\n  feed stopped.")
+
+
+def cmd_sessions(args):
+    if getattr(args, "follow", False):
+        _follow_sessions()
         return
-    say("\n  Captured by your campaigns:")
-    say(f"    victims seen        {sm['victims']}")
-    say(f"    credentials         {col(sm['credentials'], 'g' if sm['credentials'] else 'd')}")
-    say(f"    2FA codes relayed   {col(sm['otps'], 'g' if sm['otps'] else 'd')}")
-    say(f"    session cookies     {col(sm['cookies'], 'g' if sm['cookies'] else 'd')}   {col('← the prize', 'd')}")
-    if sm.get("webauthn_rejected"):
-        say(f"    passkey attempts    {col(str(sm['webauthn_rejected']) + ' REJECTED', 'r')} (phishing-resistant)")
-    if sm.get("exfils"):
-        say(f"    drop-server exfils  {sm['exfils']}")
-    victims = [t for t in sm.get("tracks", []) if t.get("has_cookie")]
-    if victims:
-        say("\n  Victims with a stolen session — take one over:")
-        for t in victims:
-            say(f"    {col(t['track'], 'm')}  {t.get('user', '')}   →  {col('kingnet hijack ' + t['track'], 'c')}")
+    banner()
+    caps = _captures()
+    if caps is None:
+        warn(f"Console not reachable on :{CONSOLE_PORT} — run `{PROG} up`, start a campaign, and sign in via the phishing link.")
+        return
+    if not caps:
+        say(f"\n  No captures yet. Open the phishing link and sign in as the victim, then re-run.")
+        say(f"  Live feed:  {col(PROG + ' sessions --follow', 'c')}   ·   self-test:  {col(PROG + ' phish test <domain>', 'c')}")
+        return
+    say(col("\n  CAPTURED VICTIMS", "B") + f"  ({len(caps)})\n")
+    for c in caps:
+        head = col(c["track"], "m")
+        print(f"  ● {head}")
+        if c.get("username"):
+            print(f"      creds    {col(c['username'] + ' / ' + str(c.get('password', '')), 'y')}")
+        if c.get("otp"):
+            print(f"      2FA      {col(c['otp'], 'y')}  (relayed live)")
+        if c.get("cookie"):
+            ck = c["cookie"]
+            print(f"      cookie   {col(ck.get('cookie_name', '') + '=' + str(ck.get('cookie_value', ''))[:50] + '…', 'g')}")
+            print(f"      takeover {col(PROG + ' hijack ' + c['track'], 'c')}")
+        if c.get("webauthn"):
+            print(f"      passkey  {col('REJECTED', 'r')} — bound to {c['webauthn'].get('bound_origin')} (phishing-resistant)")
     s = load_state()
-    if sm["cookies"] >= 1:
+    if any(c.get("cookie") for c in caps):
         complete_mission(s, "session-thief")
-    _check_contracts(s, sm)
+    _check_contracts(s)
     save_state(s)
-    say(f"\n  Full live view + one-click hijack: {col(web_url(CONSOLE_DOMAIN), 'b')}  (or http://localhost:{CONSOLE_PORT}/)")
+    say(f"\n  Live feed: {col(PROG + ' sessions --follow', 'c')}   ·   web console: {col(web_url(CONSOLE_DOMAIN), 'b')}")
 
 
 def cmd_world(args):
@@ -1023,8 +1135,11 @@ def build_parser():
     pst.add_argument("--phish-domain", help="look-alike phishing domain (default login-<org>.kingnet.lab)")
     pstp = phs.add_parser("stop", help="stop a running campaign by id")
     pstp.add_argument("id", help="campaign id (see `kingnet status`)")
+    ptst = phs.add_parser("test", help="self-test: drive a victim login through the proxy and confirm capture works")
+    ptst.add_argument("--target", help="a domain you own (defaults to your first campaign)")
 
-    add("sessions", cmd_sessions, "show what your campaigns have captured")
+    ses = add("sessions", cmd_sessions, "show captured creds/cookies (add --follow for a live feed)")
+    ses.add_argument("--follow", "-f", action="store_true", help="stream captures live as victims log in")
 
     hj = add("hijack", cmd_hijack, "replay a stolen session to take over an account")
     hj.add_argument("track", help="the victim track id (from the console)")

