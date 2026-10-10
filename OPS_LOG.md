@@ -1,6 +1,13 @@
 # KINGNET — Ops / Work Log
 _Newest on top. See DESIGN.md for the full plan._
 
+### 2026-10-10 — Phase 4 UX: ease onboarding (user hit Docker/PATH friction)
+- **Adaptive program name (`PROG`)** — every help/tutorial/message now prints the real invocation (`./kingnet` when not on PATH, `kingnet` once installed); argparse usage uses it too. Fixes the "`kingnet: command not found`" copy-paste trap.
+- **`kingnet install`** — symlinks the CLI to `/usr/local/bin/kingnet` (sudo) so `kingnet …` works anywhere.
+- **`kingnet setup`** — auto-installs Docker (apt/dnf/pacman detected: `docker.io` + enable service + add user to the docker group); prints the log-out/`newgrp docker` note.
+- **`doctor` + `up` Docker status** — `_docker_status()` distinguishes missing / daemon-down / **no-permission** / ok. `up` now preflights and guides (e.g. `sudo usermod -aG docker <user>` + `newgrp docker`, or `sudo ./kingnet up`) instead of dumping the raw `permission denied` socket error. `doctor` gives the OS-specific install command.
+- README quickstart now leads with `setup`/`install`, a Requirements line, and the Docker-group note. Verified parse + doctor/up/setup/install flows (sandbox reproduced the no-permission case).
+
 ### 2026-10-10 — Phase 4 #3: story/progression layer (contracts + unlocks)
 - **`kingnet contracts`** — a 5-contract story arc that turns the sandbox into a campaign: foothold → own the inbox → the bank job → hit the passkey wall → switch sides (defend). Each has narrative + reward (KC + XP) and **auto-completes from real play** (`_check_contracts` wired into sessions/hijack/defend/world): recon=cookie captured, takeover=account-takeover mission, heist=KingBank `/security` shows a fraud alert (real drain detection), the-wall=a passkey attempt was rejected, blue-team=a defense was enabled.
 - **Gating/unlocks:** only **KingMail** is available at the start; finishing **Contract 1 (recon)** unlocks **KingBank** + **KingVault** in the market. `buy` refuses locked orgs; `market` shows the lock.

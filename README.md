@@ -21,12 +21,20 @@ Clone the whole lab and drive it from a single command. You get a **KingCoins** 
 a marketplace to **buy lab domains and spin up target organisations**, **phishing campaigns**
 you launch against them, and **missions** that pay out coins — all local, all lab-only.
 
+**Requirements:** Python 3.9+ and Docker. On Linux/Mac the steps below install and check
+everything for you; on Windows, install Docker Desktop first.
+
 ```bash
 git clone https://github.com/Kingnet256/kingnet && cd kingnet
-./kingnet up                 # build images + start the base lab + lab router (needs Docker)
+./kingnet setup              # installs Docker if you don't have it (Debian/Kali/Fedora/Arch)
+./kingnet install            # optional: lets you type `kingnet` instead of `./kingnet`
+./kingnet up                 # build images + start the base lab + lab router
 ./kingnet hosts install      # map *.kingnet.lab into /etc/hosts so orgs open in your browser (sudo)
 ./kingnet tutorial           # a guided first campaign
 ```
+
+> First time installing Docker? Log out and back in (or run `newgrp docker`) so you can use
+> it without `sudo`. Stuck? `./kingnet doctor` tells you exactly what's missing and how to fix it.
 
 The core loop — every org and campaign gets a **real lab domain** you open in the browser:
 
