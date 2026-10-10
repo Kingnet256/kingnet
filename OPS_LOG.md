@@ -1,6 +1,10 @@
 # KINGNET — Ops / Work Log
 _Newest on top. See DESIGN.md for the full plan._
 
+### 2026-10-10 — Phase 4 UX: `kingnet play` (zero to a live campaign in one command)
+- **`kingnet play`** — runs the whole onboarding in sequence: Docker preflight → `up` (build+start console+router) → `hosts install` → provision a first KingMail org (acme-mail.kingnet.lab) → launch a phishing campaign → print a clear 3-step mission (open the phish link, sign in as the victim, `sessions` → hijack) with dashboard/story/help pointers. Idempotent-ish (skips steps already done). Verified full sequence via `--dry-run`.
+- Help reorganised with a **"Start here"** group (play / setup / install / doctor) first. README now leads with `./kingnet setup && ./kingnet play`.
+
 ### 2026-10-10 — Phase 4 UX: ease onboarding (user hit Docker/PATH friction)
 - **Adaptive program name (`PROG`)** — every help/tutorial/message now prints the real invocation (`./kingnet` when not on PATH, `kingnet` once installed); argparse usage uses it too. Fixes the "`kingnet: command not found`" copy-paste trap.
 - **`kingnet install`** — symlinks the CLI to `/usr/local/bin/kingnet` (sudo) so `kingnet …` works anywhere.

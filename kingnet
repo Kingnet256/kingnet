@@ -894,6 +894,43 @@ def cmd_contracts(args):
             + col("kingnet buy kingmail --domain acme-mail.kingnet.lab", "c"))
 
 
+def cmd_play(args):
+    """Zero to a live campaign in one command: up → hosts → first org → first phish."""
+    banner()
+    say(col("\n  Setting up your lab and your first campaign…", "B"))
+    if not DRY:
+        st = _docker_status()
+        if st != "ok":
+            say()
+            _docker_help(st)
+            return
+    cmd_up(argparse.Namespace())
+    say()
+    cmd_hosts(argparse.Namespace(hosts_cmd="install"))
+    s = load_state()
+    if not s.get("orgs"):
+        say(col("\n  Provisioning your first target org (KingMail)…", "B"))
+        cmd_buy(argparse.Namespace(item="kingmail", domain="acme-mail.kingnet.lab"))
+        s = load_state()
+    running = [c for c in s["campaigns"].values() if c.get("running")]
+    if not running and s.get("orgs"):
+        say(col("\n  Launching a phishing campaign…", "B"))
+        cmd_phish(argparse.Namespace(phish_cmd="start", target=next(iter(s["orgs"])), phish_domain=None))
+        s = load_state()
+        running = [c for c in s["campaigns"].values() if c.get("running")]
+
+    say(col("\n  ───────────────────────────────────────────", "d"))
+    say(col("  🎯 Your lab is live — here's the mission:", "B"))
+    if running:
+        c = running[0]
+        say(f"   1. Open the phishing link:  {col(c['phish_url'], 'b')}")
+        say(f"      Sign in as the victim:   {col('victim@kingmail.lab  /  Summer2026!', 'y')}")
+        say(f"      (its 2FA code is shown at {col(web_url(c['target'], '/phone'), 'b')})")
+    say(f"   2. See what you captured:   {col(PROG + ' sessions', 'c')}")
+    say(f"   3. Take over the account:   {col(web_url(CONSOLE_DOMAIN), 'b')}  → Hijack")
+    say(f"\n   Dashboard: {col(PROG + ' world', 'c')}   ·   Story: {col(PROG + ' contracts', 'c')}   ·   Help: {col(PROG + ' help', 'c')}")
+
+
 def cmd_tutorial(args):
     banner()
     steps = [
@@ -956,6 +993,7 @@ def build_parser():
         sp.set_defaults(func=fn)
         return sp
 
+    add("play", cmd_play, "ONE command: start the lab + your first live phishing campaign")
     add("doctor", cmd_doctor, "check prerequisites (Python, Docker)")
     add("setup", cmd_setup, "install Docker automatically (Debian/Kali/Fedora/Arch)")
     add("install", cmd_install, "put `kingnet` on your PATH so you can run it anywhere")
@@ -1018,7 +1056,8 @@ def cmd_help(args):
     if not topic:
         banner()
         say("\n  " + col("COMMANDS", "B"))
-        groups = [("Set up", ["doctor", "setup", "install", "up", "down", "status", "world", "hosts"]),
+        groups = [("Start here", ["play", "setup", "install", "doctor"]),
+                  ("Set up", ["up", "down", "status", "world", "hosts"]),
                   ("Economy", ["wallet", "market", "buy", "missions", "mission"]),
                   ("Attack", ["targets", "phish", "sessions", "hijack"]),
                   ("Story", ["contracts"]),

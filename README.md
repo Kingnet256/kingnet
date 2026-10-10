@@ -27,6 +27,16 @@ everything for you; on Windows, install Docker Desktop first.
 ```bash
 git clone https://github.com/Kingnet256/kingnet && cd kingnet
 ./kingnet setup              # installs Docker if you don't have it (Debian/Kali/Fedora/Arch)
+./kingnet play               # ⚡ one command: start the lab + your first live phishing campaign
+```
+
+`./kingnet play` builds everything, starts the lab + router, maps the browser domains,
+provisions your first target org and launches a phishing campaign — then prints your mission
+(open the link, sign in as the victim, capture the session, take over the account). That's it.
+
+Prefer to drive it yourself? The individual commands:
+
+```bash
 ./kingnet install            # optional: lets you type `kingnet` instead of `./kingnet`
 ./kingnet up                 # build images + start the base lab + lab router
 ./kingnet hosts install      # map *.kingnet.lab into /etc/hosts so orgs open in your browser (sudo)
