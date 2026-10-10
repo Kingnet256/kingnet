@@ -1,6 +1,12 @@
 # KINGNET — Ops / Work Log
 _Newest on top. See DESIGN.md for the full plan._
 
+### 2026-10-10 — Phase 4 #1: lab router + real domains in the browser
+- **`router/`** — a Host-header reverse proxy (FastAPI+httpx, pass-through, forwards `*.kingnet.lab` → `http://<host>:8080` on the lab network; `/healthz`; refuses non-lab hosts). Smoke-tested (healthz ok, non-lab→404, lab-no-backend→502).
+- **CLI wired up:** `kingnet up` now builds+runs the router on `127.0.0.1:80` and gives the console the alias `console.kingnet.lab`. Every org gets a `--network-alias <domain>` and is shown as `http://<domain>`; **KingVault origin/rp-id now bind to its domain** (so browser WebAuthn works and the phish origin mismatches). `phish start` mints a **look-alike phishing domain** (`login-<org>.kingnet.lab`, or `--phish-domain`) on its own alias with `PROXY_PUBLIC_URL` set to it — a genuinely different origin from the real org.
+- **`kingnet hosts install|uninstall|show`** — manages a marked block in `/etc/hosts` (sudo when needed; `KINGNET_HOSTS`/`KINGNET_HTTP_PORT` overridable) mapping all current lab domains → 127.0.0.1. Verified install/show/uninstall against a temp hosts file; full dry-run of up/buy/phish shows correct `docker run`s.
+- README leads-section updated with the hosts step + the "real domain / real origin" explanation. (Container run verified on the user's Docker; logic verified here via `--dry-run`.)
+
 ### 2026-10-10 — Phase 4 started: the `kingnet` world CLI (v1 foundation)
 - **New direction (user):** make KINGNET a CLI-first, immersive "real world" you clone and operate — a KingCoins economy, a marketplace to **buy lab domains + spin up target orgs**, guided phishing/session campaigns, missions that pay coins, help on everything. Decided: **local & self-contained** (Docker on the user's own box), **economy + ops console tied together by the CLI**.
 - **Built `./kingnet`** (single-file, pure-stdlib Python, ~600 lines): world state in `.kingnet/world.json` (gitignored); commands `doctor/up/down/status/wallet/market/buy/targets/phish/sessions/hijack/defend/missions/mission/tutorial/reset/help`. `buy` spends coins + `docker run`s a bundled image aliased to a `*.kingnet.lab` domain; `phish start` runs the AiTM proxy against it and prints the phishing link; `defend` POSTs the target's admin toggles; missions (first-blood/session-thief/account-takeover/bank-job/defender) auto-complete or `mission claim`. Rich `help` (grouped commands + topics overview/economy/flow) and per-command `--help`.

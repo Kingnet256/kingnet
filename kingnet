@@ -35,7 +35,19 @@ STATE_FILE = STATE_DIR / "world.json"
 NETWORK = "kingnet-lab"
 CONSOLE_NAME = "kn-console"
 CONSOLE_PORT = 9000
+CONSOLE_DOMAIN = "console.kingnet.lab"
+ROUTER_NAME = "kn-router"
+ROUTER_IMAGE = "kingnet/router"
+HTTP_PORT = int(os.environ.get("KINGNET_HTTP_PORT", "80"))   # host port the lab router binds
+HOSTS_PATH = os.environ.get("KINGNET_HOSTS", "/etc/hosts")
+HOSTS_BEGIN = "# >>> KINGNET lab (managed) >>>"
+HOSTS_END = "# <<< KINGNET lab (managed) <<<"
 START_COINS = 1000
+
+
+def web_url(domain, path=""):
+    port = "" if HTTP_PORT == 80 else f":{HTTP_PORT}"
+    return f"http://{domain}{port}{path}"
 
 # ---- cosmetics -------------------------------------------------------------
 C = {"g": "\033[1;32m", "r": "\033[1;31m", "y": "\033[1;33m", "c": "\033[1;36m",
@@ -212,7 +224,8 @@ def _build_images():
         ok(f"image {o['image']}")
     docker("build", "-q", "-t", "kingnet/proxy", str(ROOT / "proxy"))
     docker("build", "-q", "-t", "kingnet/console", str(ROOT / "console"))
-    ok("images kingnet/proxy, kingnet/console")
+    docker("build", "-q", "-t", ROUTER_IMAGE, str(ROOT / "router"))
+    ok("images kingnet/proxy, kingnet/console, kingnet/router")
 
 
 def cmd_up(args):
@@ -224,16 +237,23 @@ def cmd_up(args):
     if not container_running(CONSOLE_NAME):
         (STATE_DIR / "console-data").mkdir(parents=True, exist_ok=True)
         docker("run", "-d", "--name", CONSOLE_NAME, "--network", NETWORK,
+               "--network-alias", CONSOLE_DOMAIN,
                "-p", f"127.0.0.1:{CONSOLE_PORT}:8080",
                "-v", f"{STATE_DIR / 'console-data'}:/app/data", "kingnet/console")
-    ok(f"attacker console up → {col(f'http://localhost:{CONSOLE_PORT}/', 'b')}")
-    say(f"\nNext: {col('kingnet market', 'c')} to see what you can buy, "
+    if not container_running(ROUTER_NAME):
+        docker("run", "-d", "--name", ROUTER_NAME, "--network", NETWORK,
+               "-p", f"127.0.0.1:{HTTP_PORT}:8080", ROUTER_IMAGE)
+    ok(f"attacker console up → {col(f'http://localhost:{CONSOLE_PORT}/', 'b')} "
+       f"(also {col(web_url(CONSOLE_DOMAIN), 'b')})")
+    ok(f"lab router up → serves every *.kingnet.lab domain on port {HTTP_PORT}")
+    say(f"\nMap the lab domains into your browser once:  {col('kingnet hosts install', 'c')}  (uses sudo)")
+    say(f"Then: {col('kingnet market', 'c')} to see what you can buy, "
         f"or {col('kingnet tutorial', 'c')} for a guided run.")
 
 
 def cmd_down(args):
     s = load_state()
-    names = [CONSOLE_NAME] + [o["container"] for o in s["orgs"].values()] + \
+    names = [CONSOLE_NAME, ROUTER_NAME] + [o["container"] for o in s["orgs"].values()] + \
             [c["container"] for c in s["campaigns"].values()]
     for n in names:
         docker("rm", "-f", n, check=False)
@@ -251,7 +271,7 @@ def cmd_status(args):
         say(col("    (none yet — buy one with `kingnet buy kingmail --domain acme.kingnet.lab`)", "d"))
     for dom, o in s["orgs"].items():
         live = col("● live", "g") if container_running(o["container"]) else col("○ stopped", "d")
-        say(f"    {live}  {col(dom, 'c')}  [{o['type']}]  → http://localhost:{o['port']}{ORGS[o['type']]['login']}")
+        say(f"    {live}  {col(dom, 'c')}  [{o['type']}]  → {web_url(dom, ORGS[o['type']]['login'])}")
     say("\n  " + col("Campaigns", "B"))
     if not s["campaigns"]:
         say(col("    (none — `kingnet phish start --target <domain>`)", "d"))
@@ -329,7 +349,8 @@ def cmd_buy(args):
     run = ["run", "-d", "--name", container, "--network", NETWORK,
            "--network-alias", domain, "-p", f"127.0.0.1:{port}:8080"]
     if slug == "kingvault":
-        run += ["-e", f"KINGVAULT_ORIGIN=http://localhost:{port}", "-e", "KINGVAULT_RP_ID=localhost"]
+        # WebAuthn binds to the origin the browser is on — i.e. the lab domain via the router.
+        run += ["-e", f"KINGVAULT_ORIGIN={web_url(domain)}", "-e", f"KINGVAULT_RP_ID={domain}"]
     else:
         run += _env_for(slug, domain)
     run += [o["image"]]
@@ -338,9 +359,11 @@ def cmd_buy(args):
     if slug == "kingvault":
         complete_mission(s, "defender")
     save_state(s)
-    ok(f"Provisioned {col(o['name'], 'B')} at {col(domain, 'c')}  → {col(f'http://localhost:{port}{o['login']}', 'b')}")
+    ok(f"Provisioned {col(o['name'], 'B')} at {col(web_url(domain, o['login']), 'b')}")
+    say(f"   (also reachable at http://localhost:{port}{o['login']})")
     say(f"   Demo login: {o['creds']}")
     say(f"   Spent {coin(total)}, balance now {coin(s['coins'])}.")
+    say(f"   Browse it in your browser after:  {col('kingnet hosts install', 'c')}")
     if slug != "kingvault":
         say(f"\n   Attack it:  {col('kingnet phish start --target ' + domain, 'c')}")
     else:
@@ -354,7 +377,81 @@ def cmd_targets(args):
         return
     for dom, o in s["orgs"].items():
         live = col("● live", "g") if container_running(o["container"]) else col("○ stopped", "d")
-        say(f"{live}  {col(dom, 'c')}  [{o['type']}]  http://localhost:{o['port']}{ORGS[o['type']]['login']}  ({ORGS[o['type']]['creds']})")
+        say(f"{live}  {col(dom, 'c')}  [{o['type']}]  {web_url(dom, ORGS[o['type']]['login'])}  ({ORGS[o['type']]['creds']})")
+
+
+def _all_domains(s):
+    doms = {CONSOLE_DOMAIN}
+    doms.update(s["orgs"].keys())
+    for c in s["campaigns"].values():
+        if c.get("phish_domain"):
+            doms.add(c["phish_domain"])
+    return sorted(doms)
+
+
+def _strip_block(text):
+    out, skip = [], False
+    for line in text.splitlines():
+        if line.strip() == HOSTS_BEGIN:
+            skip = True; continue
+        if line.strip() == HOSTS_END:
+            skip = False; continue
+        if not skip:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _write_hosts(new_text):
+    STATE_DIR.mkdir(exist_ok=True)
+    tmp = STATE_DIR / "hosts.new"
+    tmp.write_text(new_text)
+    if DRY:
+        say(col(f"  [dry-run] sudo cp {tmp} {HOSTS_PATH}", "d"))
+        return True
+    if os.name == "nt":
+        err(f"On Windows, edit the hosts file manually: {HOSTS_PATH}. I wrote the desired file to {tmp}.")
+        return False
+    try:
+        Path(HOSTS_PATH).write_text(new_text)  # already root?
+        return True
+    except PermissionError:
+        warn(f"Updating {HOSTS_PATH} needs sudo — you may be prompted for your password.")
+        r = subprocess.run(["sudo", "cp", str(tmp), HOSTS_PATH])
+        if r.returncode != 0:
+            err("Could not update the hosts file (sudo failed or declined).")
+            return False
+        return True
+
+
+def cmd_hosts(args):
+    s = load_state()
+    doms = _all_domains(s)
+    sub = getattr(args, "hosts_cmd", None) or "show"
+    current = Path(HOSTS_PATH).read_text() if Path(HOSTS_PATH).exists() else ""
+    has_block = HOSTS_BEGIN in current
+    if sub == "show":
+        banner()
+        say(f"\n  Lab domains in your world ({len(doms)}):")
+        for d in doms:
+            say(f"    {col(d, 'c')}  → {web_url(d)}")
+        say(f"\n  Managed block in {HOSTS_PATH}: " + (col("present", "g") if has_block else col("absent", "d")))
+        if not has_block:
+            say(f"  Install it:  {col('kingnet hosts install', 'c')}")
+        return
+    if sub == "install":
+        block = [HOSTS_BEGIN] + [f"127.0.0.1\t{d}" for d in doms] + [HOSTS_END]
+        new = _strip_block(current).rstrip("\n") + "\n\n" + "\n".join(block) + "\n"
+        if _write_hosts(new):
+            ok(f"Mapped {len(doms)} lab domain(s) → 127.0.0.1 in {HOSTS_PATH}.")
+            if HTTP_PORT != 80:
+                warn(f"The router is on port {HTTP_PORT}, so open domains as http://<name>:{HTTP_PORT}/.")
+            else:
+                say("  Open them straight in your browser, e.g. " + col(web_url(next(iter(doms))), "b"))
+            say(f"  Re-run {col('kingnet hosts install', 'c')} whenever you buy an org or start a campaign.")
+    elif sub == "uninstall":
+        new = _strip_block(current).rstrip("\n") + "\n"
+        if _write_hosts(new):
+            ok(f"Removed the KINGNET block from {HOSTS_PATH}.")
 
 
 def cmd_phish(args):
@@ -369,24 +466,31 @@ def cmd_phish(args):
         if otype == "kingvault":
             warn("KingVault uses passkeys — a phishing proxy cannot steal its login. "
                  "That's the point; run it and watch the relay get rejected.")
+        # The phishing site lives on its OWN look-alike lab domain — a DIFFERENT origin from
+        # the real org. That difference is exactly why passkeys win and shared secrets lose.
+        phish_domain = _norm_domain(args.phish_domain) if getattr(args, "phish_domain", None) \
+            else f"login-{dom.split('.')[0]}.kingnet.lab"
         pport = s["next_pport"]; s["next_pport"] += 1
-        container = f"kn-phish-{dom.replace('.', '-')}-{pport}"
+        container = f"kn-phish-{phish_domain.replace('.', '-')}"
         cookie = ORGS[otype]["cookie"] or "none"
         docker("run", "-d", "--name", container, "--network", NETWORK,
+               "--network-alias", phish_domain,
                "-e", f"TARGET_URL=http://{dom}:8080",
-               "-e", f"PROXY_PUBLIC_URL=http://localhost:{pport}",
+               "-e", f"PROXY_PUBLIC_URL={web_url(phish_domain)}",
                "-e", f"CONSOLE_URL=http://{CONSOLE_NAME}:8080",
                "-e", f"SESSION_COOKIE_NAME={cookie}",
                "-p", f"127.0.0.1:{pport}:8080", "kingnet/proxy")
         cid = f"camp-{pport}"
-        url = f"http://localhost:{pport}{ORGS[otype]['login']}"
-        s["campaigns"][cid] = {"target": dom, "container": container, "port": pport,
-                               "phish_url": url, "running": True, "started": time.time()}
+        url = web_url(phish_domain, ORGS[otype]["login"])
+        s["campaigns"][cid] = {"target": dom, "phish_domain": phish_domain, "container": container,
+                               "port": pport, "phish_url": url, "running": True, "started": time.time()}
         complete_mission(s, "first-blood")
         save_state(s)
-        ok(f"Campaign {col(cid, 'm')} live. Send your victim this phishing link:")
-        say(f"   {col(url, 'b')}")
-        say(f"   Watch captures:  {col('kingnet sessions', 'c')}   console: http://localhost:{CONSOLE_PORT}/")
+        ok(f"Campaign {col(cid, 'm')} live — phishing domain {col(phish_domain, 'r')} (vs real {col(dom, 'c')}).")
+        say(f"   Send your victim this phishing link:  {col(url, 'b')}")
+        say(f"   (also at http://localhost:{pport}{ORGS[otype]['login']})")
+        say(f"   Run {col('kingnet hosts install', 'c')} so the domain resolves in your browser.")
+        say(f"   Watch captures:  {col('kingnet sessions', 'c')}   console: {web_url(CONSOLE_DOMAIN)}")
     elif args.phish_cmd == "stop":
         c = s["campaigns"].get(args.id)
         if not c:
@@ -549,10 +653,17 @@ def build_parser():
 
     add("targets", cmd_targets, "list the target orgs you own")
 
+    hs = add("hosts", cmd_hosts, "map your lab domains into /etc/hosts so they open in the browser")
+    hsub = hs.add_subparsers(dest="hosts_cmd")
+    hsub.add_parser("install", help="add/update the managed block of lab domains (uses sudo)")
+    hsub.add_parser("uninstall", help="remove the managed block of lab domains (uses sudo)")
+    hsub.add_parser("show", help="list your lab domains and whether the block is installed")
+
     ph = add("phish", cmd_phish, "run a phishing (AiTM) campaign against a target")
     phs = ph.add_subparsers(dest="phish_cmd")
     pst = phs.add_parser("start", help="start a campaign against --target <domain>")
     pst.add_argument("--target", help="a domain you own (see `kingnet targets`)")
+    pst.add_argument("--phish-domain", help="look-alike phishing domain (default login-<org>.kingnet.lab)")
     pstp = phs.add_parser("stop", help="stop a running campaign by id")
     pstp.add_argument("id", help="campaign id (see `kingnet status`)")
 
@@ -587,7 +698,7 @@ def cmd_help(args):
     if not topic:
         banner()
         say("\n  " + col("COMMANDS", "B"))
-        groups = [("Set up", ["doctor", "up", "down", "status"]),
+        groups = [("Set up", ["doctor", "up", "down", "status", "hosts"]),
                   ("Economy", ["wallet", "market", "buy", "missions", "mission"]),
                   ("Attack", ["targets", "phish", "sessions", "hijack"]),
                   ("Defend / learn", ["defend", "tutorial"]),
