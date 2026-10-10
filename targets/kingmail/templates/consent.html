@@ -1,0 +1,54 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authorize · KingMail</title>
+<style>
+ :root{--brand:#1a73e8;--ink:#202124;--muted:#5f6368}
+ *{box-sizing:border-box} body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+   font:15px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:#f1f3f4}
+ .card{width:420px;max-width:92vw;background:#fff;border:1px solid #e3e6eb;border-radius:14px;padding:26px 24px;box-shadow:0 8px 30px rgba(0,0,0,.07)}
+ .app{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+ .ic{width:44px;height:44px;border-radius:11px;background:#5f6368;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px}
+ h1{font-size:18px;margin:14px 0 2px} .sub{color:var(--muted);font-size:13px}
+ .pub{font-size:12px;color:#c0392b;font-weight:600;margin-top:2px}
+ .scopes{border:1px solid #eceef1;border-radius:10px;padding:12px 14px;margin:16px 0}
+ .scopes h3{margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+ .scopes li{margin:4px 0}
+ .warn{background:#fef7e0;border:1px solid #f3d675;color:#8a5a00;border-radius:9px;padding:10px 12px;font-size:12.5px;margin-bottom:12px}
+ .block{background:#fdecea;border:1px solid #f5a79e;color:#b1281b;border-radius:9px;padding:10px 12px;font-size:13px;margin-bottom:12px}
+ .row{display:flex;gap:10px;margin-top:8px}
+ button{flex:1;padding:11px;border:0;border-radius:9px;font-weight:600;font-size:15px;cursor:pointer}
+ .allow{background:var(--brand);color:#fff} .deny{background:#f1f3f4;color:#3c4043;border:1px solid #dadce0}
+ .who{font-size:12px;color:var(--muted);margin-top:12px;text-align:center}
+</style></head><body>
+ <div class="card">
+  <div class="app"><div class="ic">📦</div>
+    <div><div style="font-weight:600">{{ client.name }}</div>
+      <div class="sub">wants access to your KingMail account</div>
+      <div class="pub">⚠ {{ client.publisher }}</div></div></div>
+  <h1>Grant access?</h1>
+  <div class="sub">Signed in as <b>{{ email }}</b></div>
+
+  <div class="warn" style="margin-top:14px">You’re on the <b>real KingMail</b> — your password and 2FA are safe.
+   This screen is asking you to <b>hand an app a key to your mailbox</b>. That’s the trick: consent phishing needs no stolen password.</div>
+
+  {% if blocked %}
+   <div class="block">🚫 Your organisation blocks <b>unverified</b> apps from mailbox access. Granting will be refused.</div>
+  {% endif %}
+
+  <div class="scopes"><h3>This will allow {{ client.name }} to</h3>
+   <ul>{% for s in scope_labels %}<li>📨 {{ s }}</li>{% endfor %}</ul>
+  </div>
+
+  <form method="post" action="/oauth/authorize">
+   <input type="hidden" name="client_id" value="{{ client_id }}">
+   <input type="hidden" name="redirect_uri" value="{{ redirect_uri }}">
+   <input type="hidden" name="scope" value="{{ scope }}">
+   <input type="hidden" name="state" value="{{ state }}">
+   <div class="row">
+    <button class="deny" name="decision" value="deny" type="submit">Cancel</button>
+    <button class="allow" name="decision" value="allow" type="submit">Allow</button>
+   </div>
+  </form>
+  <div class="who">You can review and revoke app access anytime at <b>/oauth/grants</b>.</div>
+ </div>
+</body></html>

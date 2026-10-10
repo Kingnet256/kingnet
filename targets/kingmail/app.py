@@ -14,7 +14,7 @@ import uuid
 
 import pyotp
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
@@ -201,3 +201,134 @@ def phone(request: Request):
     remaining = 30 - int(time.time()) % 30
     return tpl.TemplateResponse(request, "phone.html", {"code": code, "remaining": remaining, "email": email}
     )
+
+
+# ===========================================================================
+# OAuth2 consent-phishing scenario (Phase 3).
+#
+# Here KingMail also plays an identity + resource server. A malicious third-party
+# app ("Mail Backup Pro") asks the victim — who is genuinely signed in to the REAL
+# KingMail — to grant it access to their mailbox. The victim's password and 2FA are
+# never phished; the attacker just gets them to click "Allow", and walks away with a
+# token that reads their mail. Defenses: the grant is visible + revocable, raises a
+# security alert, and an admin policy can block unverified apps. Lab-only.
+# ===========================================================================
+OAUTH_CLIENTS = {
+    "mailbackup": {
+        "name": "Mail Backup Pro",
+        "publisher": "unknown developer — UNVERIFIED",
+        "secret": os.environ.get("OAUTH_MAILBACKUP_SECRET", "mailbackup-lab-secret"),
+        "redirect_uri": os.environ.get("OAUTH_MAILBACKUP_REDIRECT", "http://localhost:8070/callback"),
+        "scopes": ["mail.read"],
+        "verified": False,
+    }
+}
+SCOPE_LABELS = {"mail.read": "Read all the email in your mailbox"}
+AUTH_CODES: dict[str, dict] = {}     # code  -> {email, client_id, scope, exp}
+ACCESS_TOKENS: dict[str, dict] = {}  # token -> {email, client_id, scope}
+GRANTS: dict[str, dict] = {}         # email -> {client_id: {name, scope, ts}}
+POLICY = {"block_unverified": os.environ.get("KINGMAIL_BLOCK_UNVERIFIED", "") not in ("", "0", "false")}
+
+
+def _scopes_from(scope: str, client: dict) -> list:
+    return [s for s in scope.split() if s] or client["scopes"]
+
+
+@app.get("/oauth/authorize", response_class=HTMLResponse)
+def oauth_authorize(request: Request, client_id: str = "", redirect_uri: str = "",
+                    scope: str = "", state: str = "", response_type: str = "code"):
+    client = OAUTH_CLIENTS.get(client_id)
+    if not client or redirect_uri != client["redirect_uri"] or response_type != "code":
+        return HTMLResponse("<h3>Invalid OAuth request.</h3>", status_code=400)
+    cu = current_user(request)
+    if not cu:  # consent phishing works precisely because you ARE logged into the real site
+        return RedirectResponse("/login", status_code=302)
+    email, _ = cu
+    scopes = _scopes_from(scope, client)
+    return tpl.TemplateResponse(request, "consent.html", {
+        "email": email, "client": client, "client_id": client_id, "redirect_uri": redirect_uri,
+        "scope": " ".join(scopes), "state": state,
+        "scope_labels": [SCOPE_LABELS.get(s, s) for s in scopes],
+        "blocked": POLICY["block_unverified"] and not client["verified"],
+    })
+
+
+@app.post("/oauth/authorize", response_class=HTMLResponse)
+def oauth_decide(request: Request, client_id: str = Form(...), redirect_uri: str = Form(...),
+                 scope: str = Form(""), state: str = Form(""), decision: str = Form(...)):
+    client = OAUTH_CLIENTS.get(client_id)
+    cu = current_user(request)
+    if not client or not cu or redirect_uri != client["redirect_uri"]:
+        return HTMLResponse("<h3>Invalid OAuth request.</h3>", status_code=400)
+    email, _ = cu
+    if decision != "allow":
+        return RedirectResponse(f"{redirect_uri}?error=access_denied&state={state}", status_code=302)
+    if POLICY["block_unverified"] and not client["verified"]:
+        return HTMLResponse(
+            "<h3>Blocked by your organisation.</h3><p>Access to <b>" + client["name"] +
+            "</b> was refused: unverified apps may not be granted mailbox access. "
+            "<a href='/inbox'>Back to inbox</a></p>", status_code=403)
+    code = uuid.uuid4().hex
+    AUTH_CODES[code] = {"email": email, "client_id": client_id, "scope": scope, "exp": time.time() + 300}
+    GRANTS.setdefault(email, {})[client_id] = {"name": client["name"], "scope": scope, "ts": time.time()}
+    ALERTS.insert(0, {"ts": time.time(), "sid": "-", "email": email,
+                      "fp": {"ua": "OAuth consent grant", "geo": client["name"], "ip": "-"},
+                      "anomalies": [("oauth consent granted",
+                                     f"{client['name']} ({client['publisher']}) was granted: {scope}")]})
+    return RedirectResponse(f"{redirect_uri}?code={code}&state={state}", status_code=302)
+
+
+@app.post("/oauth/token")
+async def oauth_token(request: Request):
+    form = await request.form()
+    client = OAUTH_CLIENTS.get(form.get("client_id"))
+    rec = AUTH_CODES.get(form.get("code") or "")
+    if (not client or client["secret"] != form.get("client_secret")
+            or form.get("grant_type") != "authorization_code"
+            or not rec or rec["client_id"] != form.get("client_id") or rec["exp"] < time.time()):
+        return JSONResponse({"error": "invalid_grant"}, status_code=400)
+    AUTH_CODES.pop(form.get("code"), None)  # one-time use
+    token = uuid.uuid4().hex
+    ACCESS_TOKENS[token] = {"email": rec["email"], "client_id": rec["client_id"], "scope": rec["scope"]}
+    return JSONResponse({"access_token": token, "token_type": "Bearer",
+                         "scope": rec["scope"], "expires_in": 3600})
+
+
+@app.get("/api/messages")
+def api_messages(request: Request):
+    auth = request.headers.get("authorization", "")
+    token = auth[7:] if auth.lower().startswith("bearer ") else ""
+    rec = ACCESS_TOKENS.get(token)
+    if not rec or "mail.read" not in rec["scope"].split():
+        return JSONResponse({"error": "invalid_token"}, status_code=401)
+    return JSONResponse({"email": rec["email"], "messages": USERS[rec["email"]]["inbox"]})
+
+
+@app.get("/oauth/grants", response_class=HTMLResponse)
+def oauth_grants(request: Request):
+    cu = current_user(request)
+    if not cu:
+        return RedirectResponse("/login", status_code=302)
+    email, _ = cu
+    return tpl.TemplateResponse(request, "grants.html", {"email": email, "grants": GRANTS.get(email, {})})
+
+
+@app.post("/oauth/grants/revoke")
+def oauth_revoke(request: Request, client_id: str = Form(...)):
+    cu = current_user(request)
+    if not cu:
+        return RedirectResponse("/login", status_code=302)
+    email, _ = cu
+    GRANTS.get(email, {}).pop(client_id, None)
+    for t, r in list(ACCESS_TOKENS.items()):
+        if r["email"] == email and r["client_id"] == client_id:
+            ACCESS_TOKENS.pop(t, None)
+    return RedirectResponse("/oauth/grants", status_code=302)
+
+
+@app.post("/admin/consent-policy")
+async def admin_consent_policy(request: Request):
+    """Lab admin toggle — a real org sets this in its identity provider."""
+    body = await request.json()
+    POLICY["block_unverified"] = bool(body.get("block_unverified"))
+    return {"block_unverified": POLICY["block_unverified"]}

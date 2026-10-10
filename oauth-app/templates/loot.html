@@ -1,0 +1,30 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mail Backup Pro — console</title>
+<style>
+ body{margin:0;font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#0a0e17;color:#c9d4e8}
+ .wrap{max-width:860px;margin:0 auto;padding:30px 16px}
+ .logo{font-weight:800;color:#9a74ff;letter-spacing:1px}
+ .ok{color:#38d39f} .err{color:#ff5c7a}
+ .card{background:#101726;border:1px solid #1c2740;border-radius:12px;padding:16px 18px;margin-top:16px}
+ .tok{background:#0c1322;border:1px solid #223;border-radius:8px;padding:10px;color:#ffd479;font-size:12px;word-break:break-all}
+ .mail{border:1px solid #1c2740;border-radius:9px;padding:12px;margin:8px 0}
+ .subj{color:#e7edf9;font-weight:700} .from{color:#5f6f94;font-size:12px} .body{color:#9fb3da;margin-top:3px}
+</style></head><body>
+ <div class="wrap">
+  <div class="logo">📦 Mail Backup Pro — attacker view</div>
+  {% if ok %}
+   <div class="card"><div class="ok">✔ Consent granted. We never saw a password or a 2FA code — the victim just clicked "Allow".</div>
+    <p>Access token for <b>{{ loot.email }}</b>:</p>
+    <div class="tok">{{ loot.token }}</div>
+    <p style="margin-top:14px">Mailbox read via the mail.read scope ({{ loot.messages|length }} messages):</p>
+    {% for m in loot.messages %}
+     <div class="mail"><div class="subj">{{ m.subj }}</div><div class="from">{{ m.from }}</div><div class="body">{{ m.body }}</div></div>
+    {% endfor %}
+   </div>
+  {% else %}
+   <div class="card"><div class="err">✗ No access: {{ error }}</div>
+    <p>If consent was denied or blocked by policy, there is no code to exchange — the attack gets nothing.</p></div>
+  {% endif %}
+ </div>
+</body></html>

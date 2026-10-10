@@ -47,12 +47,14 @@ mailbox, so the lesson sticks — and then shows why passkeys/FIDO2 make the sam
 | Service | What it is |
 |---|---|
 | `proxy/` | The AiTM reverse proxy — captures creds, relays OTP, steals the session cookie, forwards everything so the victim notices nothing. Lab-constrained. |
-| `targets/kingmail/` | A realistic lab webmail: real password login, real TOTP 2FA, real signed session cookie. Also raises **detection signals** (new device / impossible travel / token reuse) when a stolen cookie is replayed — see `/security`. **Not** a real mail service. |
+| `targets/kingmail/` | A realistic lab webmail: real password login, real TOTP 2FA, real signed session cookie. Raises **detection signals** (new device / impossible travel / token reuse) on cookie replay (`/security`), and doubles as an **OAuth2 identity + resource server** (`/oauth/authorize`, `/oauth/token`, `/api/messages`, `/oauth/grants`) for the consent-phishing scenario. **Not** a real mail service. |
+| `oauth-app/` | **Mail Backup Pro** — the attacker's OAuth app for the consent-phishing scenario. It never sees a password; it lures the victim to KingMail's real consent screen and, on *Allow*, swaps the code for a mailbox token. |
 | `targets/kingvault/` | **The defense demo.** A passkey-protected (WebAuthn/FIDO2) lab portal the same proxy **cannot** phish, because the assertion is bound to the origin the browser is on. The origin-binding check is in `webauthn_core.py` → `verify_assertion()`. |
 | `console/` | The attacker console — shows captured creds / codes / cookies live and does one-click session hijack by replaying the stolen cookie. Also shows *why* a passkey capture is useless. |
 | `scripts/local_test.sh` | Docker-free runner: drives the full KingMail attack chain **and the detection signals** end-to-end, asserting every stage. |
 | `scripts/passkey_test.sh` | Docker-free proof that the passkey target resists the same proxy: honest login succeeds, the relayed assertion is rejected on origin mismatch. |
-| `lessons/` | Guided walkthroughs (attack → detection → passkeys), also the basis for the kasspar.com write-ups. |
+| `scripts/oauth_test.sh` | Docker-free proof of the OAuth consent-phishing scenario: no creds phished, then visibility / revoke / policy-block defenses. |
+| `lessons/` | Guided walkthroughs (attack → detection → passkeys → consent phishing), also the basis for the kasspar.com write-ups. |
 
 ## Quick start
 
@@ -72,6 +74,8 @@ Then open:
 | http://localhost:9000/ | **Attacker console** — watch captures land, then click *Hijack* |
 | http://localhost:8082/login | **KingVault** — the passkey portal (real origin). Click *Sign in with passkey* to enroll + log in with a genuine browser passkey. |
 | http://localhost:8444/login | **Passkey attack** — the same proxy aimed at KingVault; it warns you're on the wrong origin and the sign-in is rejected. |
+| http://localhost:8070/ | **Mail Backup Pro** — the attacker's OAuth app. *Connect* sends you to KingMail's real consent screen (consent-phishing lesson). |
+| http://localhost:8081/oauth/grants | **Defender** — third-party apps with mailbox access; revoke here. |
 
 Walk it yourself: log in at `:8443` as `victim@kingmail.lab` / `Summer2026!`, enter the code from
 `:8081/phone`, and you'll reach the inbox. Now look at `:9000` — your password, your code and your
@@ -84,9 +88,10 @@ credentials at all.
 python3 -m venv .venv
 .venv/bin/pip install -r proxy/requirements.txt -r console/requirements.txt \
   -r targets/kingmail/requirements.txt -r targets/kingvault/requirements.txt \
-  -r scripts/requirements-dev.txt          # test-only software authenticator
+  -r oauth-app/requirements.txt -r scripts/requirements-dev.txt   # last one is test-only
 ./scripts/local_test.sh       # KingMail: full attack chain + detection, asserted
 ./scripts/passkey_test.sh     # KingVault: proves the passkey defeats the same proxy
+./scripts/oauth_test.sh       # OAuth consent phishing + defenses
 ```
 
 Both scripts are the project's smoke tests — they exit non-zero if any stage breaks.
@@ -104,7 +109,7 @@ Both scripts are the project's smoke tests — they exit non-zero if any stage b
 - **Phase 0 — ✅ done:** design, scaffold, lab-only framing, license.
 - **Phase 1 — ✅ done:** full KingMail AiTM scenario end-to-end (login + OTP → capture + session hijack), verified by `scripts/local_test.sh`.
 - **Phase 2 — ✅ done:** the defense half — a passkey/FIDO2 target (`KingVault`) KINGNET **cannot** phish (verified by `scripts/passkey_test.sh`), detection signals on KingMail (new device / impossible travel / token reuse, at `/security`), and guided `lessons/`.
-- **Phase 3 — in progress:** ✅ real browser-driven WebAuthn for KingVault (standard `webauthn` library + `navigator.credentials` UI, so a genuine browser passkey works). Still to do: more scenarios (`KingBank`, OAuth consent phishing, cookie-theft variants) and publishing the lessons on kasspar.com.
+- **Phase 3 — in progress:** ✅ real browser-driven WebAuthn for KingVault (standard `webauthn` + `navigator.credentials`); ✅ **OAuth consent-phishing scenario** (`oauth-app/` + KingMail as IdP, with visibility / revoke / policy-block defenses, verified by `scripts/oauth_test.sh`). Still to do: `KingBank` scenario, cookie-theft variants, and publishing the lessons on kasspar.com.
 
 ## License
 

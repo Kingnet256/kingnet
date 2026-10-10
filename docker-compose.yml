@@ -3,7 +3,10 @@ name: kingnet
 services:
   kingmail:                       # the realistic LAB target (not a real mail service)
     build: ./targets/kingmail
-    environment: { KINGMAIL_SECRET: "kingnet-lab-secret-change-me" }
+    environment:
+      KINGMAIL_SECRET: "kingnet-lab-secret-change-me"
+      OAUTH_MAILBACKUP_REDIRECT: "http://localhost:8070/callback"   # the attacker app's callback
+      OAUTH_MAILBACKUP_SECRET: "mailbackup-lab-secret"
     ports: ["127.0.0.1:8081:8080"]
     networks: [kingnet-lab]
 
@@ -42,6 +45,18 @@ services:
       CONSOLE_URL: "http://attacker-console:8080"
     ports: ["127.0.0.1:8444:8080"]
     depends_on: [kingvault, attacker-console]
+    networks: [kingnet-lab]
+
+  # ---- Phase 3: OAuth consent-phishing scenario. The attacker's own app. ----
+  mail-backup-pro:                # the malicious OAuth app — never sees a password
+    build: ./oauth-app
+    environment:
+      KINGMAIL_PUBLIC: "http://localhost:8081"    # where the victim's BROWSER reaches KingMail
+      KINGMAIL_INTERNAL: "http://kingmail:8080"    # server-to-server token + API
+      SELF_PUBLIC: "http://localhost:8070"
+      OAUTH_CLIENT_SECRET: "mailbackup-lab-secret"
+    ports: ["127.0.0.1:8070:8080"]
+    depends_on: [kingmail]
     networks: [kingnet-lab]
 
 networks:

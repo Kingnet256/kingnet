@@ -1,6 +1,14 @@
 # KINGNET — Ops / Work Log
 _Newest on top. See DESIGN.md for the full plan._
 
+### 2026-10-10 — Phase 3 item 2: OAuth consent-phishing scenario ✅
+- **New attack class, no creds phished.** KingMail now doubles as an **OAuth2 identity + resource server**: `/oauth/authorize` (consent screen), `/oauth/token`, `/api/messages` (Bearer, scope `mail.read`), `/oauth/grants` (+ revoke), `/admin/consent-policy`. Added `consent.html` + `grants.html`. In-memory clients/codes/tokens/grants; `JSONResponse` import added.
+- **Attacker app `oauth-app/` ("Mail Backup Pro")** — lures the victim to KingMail's REAL consent screen, and on *Allow* swaps the code for a token and reads the mailbox. Never sees a password/OTP. Templates (lure + loot console), Dockerfile, requirements. Browser-facing vs server-to-server KingMail URLs split (`KINGMAIL_PUBLIC` / `KINGMAIL_INTERNAL`) so it works under Docker too.
+- **Defenses:** grant is visible at `/oauth/grants`, raises a `/security` alert ("oauth consent granted"), is revocable (kills tokens), and an admin policy (`block_unverified`) refuses consent to unverified apps (HTTP 403).
+- **Test:** `scripts/oauth_test.sh` + `_oauth_flow.py` — victim signs in to the real KingMail, grants access, attacker reads mail, then all three defenses asserted. **PASS.** `local_test.sh` still PASS (OAuth code is additive). Teardown kills by exact host:port.
+- **Docker:** compose adds `mail-backup-pro` (8070) + KingMail OAuth env. **Lessons:** added `06-oauth-consent-phishing.md` + index row. README/DESIGN roadmaps updated.
+- **Status:** Phase 3 items 1–2 done (browser WebAuthn, OAuth consent phishing). Remaining: KingBank scenario, cookie-theft variants, publish lessons on kasspar.com. To be committed + pushed.
+
 ### 2026-10-10 — Phase 3 started: real browser WebAuthn for KingVault ✅
 - **KingVault now speaks standard WebAuthn** via the `webauthn` (py_webauthn 3.0.1) library, so a genuine browser passkey works — not just the scripted ceremony. `app.py` rewritten: `/register/begin|complete` + `/login/begin|complete` use `generate_*_options` / `verify_*_response`; origin enforced by `verify_authentication_response(expected_origin=...)`. Added `webauthn` to `targets/kingvault/requirements.txt`.
 - **Browser UI** (`templates/login.html`): real `navigator.credentials.create/get`, base64url⇄ArrayBuffer helpers, auto-enroll-then-login, and an origin cue that warns when you're on a proxy origin (≠ the real RP). Node `--check` confirms the JS parses.
