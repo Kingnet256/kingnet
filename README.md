@@ -84,6 +84,7 @@ The core loop — every org and campaign gets a **real lab domain** you open in 
 ./kingnet buy kingvault --domain safe.kingnet.lab       # the passkey org the SAME attack can't phish
 ./kingnet defend acme-mail.kingnet.lab --control device-binding on   # turn on a defense
 ./kingnet wallet   &&   ./kingnet missions              # coins + objectives
+./kingnet world                                         # live dashboard: level/XP, orgs, campaigns, loot
 ```
 
 A bundled **lab router** serves every `*.kingnet.lab` domain on port 80 and `kingnet hosts`

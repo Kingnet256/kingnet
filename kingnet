@@ -112,8 +112,16 @@ MISSIONS = {
 
 # ---- world state -----------------------------------------------------------
 def default_state():
-    return {"coins": START_COINS, "ledger": [], "orgs": {}, "campaigns": {},
+    return {"coins": START_COINS, "xp": 0, "ledger": [], "orgs": {}, "campaigns": {},
             "missions": {}, "next_port": 8081, "next_pport": 8443, "created": time.time()}
+
+
+def level_of(xp):
+    return 1 + xp // 250
+
+
+def award_xp(s, n):
+    s["xp"] = s.get("xp", 0) + n
 
 
 def load_state():
@@ -150,7 +158,11 @@ def complete_mission(s, key):
         s["missions"][key] = time.time()
         title, reward = MISSIONS[key]
         earn(s, reward, f"mission: {title}")
-        print(col(f"\n🏅 Mission complete — {title}  +{reward} KC", "g"))
+        before = level_of(s.get("xp", 0))
+        award_xp(s, reward)
+        print(col(f"\n🏅 Mission complete — {title}  +{reward} KC  +{reward} XP", "g"))
+        if level_of(s["xp"]) > before:
+            print(col(f"⭐ Level up! You are now level {level_of(s['xp'])}.", "m"))
 
 
 # ---- docker helpers --------------------------------------------------------
@@ -356,6 +368,7 @@ def cmd_buy(args):
     run += [o["image"]]
     docker(*run)
     s["orgs"][domain] = {"type": slug, "container": container, "port": port, "bought": time.time()}
+    award_xp(s, 25)
     if slug == "kingvault":
         complete_mission(s, "defender")
     save_state(s)
@@ -484,6 +497,7 @@ def cmd_phish(args):
         url = web_url(phish_domain, ORGS[otype]["login"])
         s["campaigns"][cid] = {"target": dom, "phish_domain": phish_domain, "container": container,
                                "port": pport, "phish_url": url, "running": True, "started": time.time()}
+        award_xp(s, 15)
         complete_mission(s, "first-blood")
         save_state(s)
         ok(f"Campaign {col(cid, 'm')} live — phishing domain {col(phish_domain, 'r')} (vs real {col(dom, 'c')}).")
@@ -502,27 +516,70 @@ def cmd_phish(args):
         ok(f"Stopped campaign {args.id}.")
 
 
+def _console_summary():
+    st, sm = http(f"http://localhost:{CONSOLE_PORT}/api/summary")
+    return sm if (st == 200 and isinstance(sm, dict)) else None
+
+
 def cmd_sessions(args):
-    status, data = http(f"http://localhost:{CONSOLE_PORT}/stolen")
-    s = load_state()
-    sess = []
-    st2, dash = http(f"http://localhost:{CONSOLE_PORT}/")
-    # The console groups captures on its dashboard; we parse its JSON-ish /stolen plus a hint.
     banner()
-    say("\n  Captured so far (from the attacker console):")
-    if status != 200:
-        warn(f"console not reachable on :{CONSOLE_PORT} — is `kingnet up` done and a campaign running?")
+    sm = _console_summary()
+    if not sm:
+        warn(f"Console not reachable on :{CONSOLE_PORT} — run `kingnet up`, then start a campaign and sign in as the victim.")
         return
-    items = data.get("items", []) if isinstance(data, dict) else []
-    # creds/otp/cookies live on the dashboard; cookie theft drops live in /stolen
-    say(f"  drop-server exfils: {len(items)}")
-    for it in items[:8]:
-        say(f"    {col(it.get('src', '?'), 'y')}  {str(it.get('data'))[:80]}")
-    say(f"\n  Full live view: {col(f'http://localhost:{CONSOLE_PORT}/', 'b')} "
-        f"(credentials, 2FA codes, stolen cookies + one-click hijack)")
-    # best-effort mission detection
-    if "Summer2026!" in str(dash) or "kingbank_session" in str(dash) or "STOLEN" in str(dash):
-        complete_mission(s, "session-thief"); save_state(s)
+    say("\n  Captured by your campaigns:")
+    say(f"    victims seen        {sm['victims']}")
+    say(f"    credentials         {col(sm['credentials'], 'g' if sm['credentials'] else 'd')}")
+    say(f"    2FA codes relayed   {col(sm['otps'], 'g' if sm['otps'] else 'd')}")
+    say(f"    session cookies     {col(sm['cookies'], 'g' if sm['cookies'] else 'd')}   {col('← the prize', 'd')}")
+    if sm.get("webauthn_rejected"):
+        say(f"    passkey attempts    {col(str(sm['webauthn_rejected']) + ' REJECTED', 'r')} (phishing-resistant)")
+    if sm.get("exfils"):
+        say(f"    drop-server exfils  {sm['exfils']}")
+    victims = [t for t in sm.get("tracks", []) if t.get("has_cookie")]
+    if victims:
+        say("\n  Victims with a stolen session — take one over:")
+        for t in victims:
+            say(f"    {col(t['track'], 'm')}  {t.get('user', '')}   →  {col('kingnet hijack ' + t['track'], 'c')}")
+    s = load_state()
+    if sm["cookies"] >= 1:
+        complete_mission(s, "session-thief")
+        save_state(s)
+    say(f"\n  Full live view + one-click hijack: {col(web_url(CONSOLE_DOMAIN), 'b')}  (or http://localhost:{CONSOLE_PORT}/)")
+
+
+def cmd_world(args):
+    s = load_state()
+    banner()
+    xp = s.get("xp", 0); lvl = level_of(xp); nxt = lvl * 250
+    say(f"\n  {col('OPERATOR', 'B')}   level {col(lvl, 'm')}    XP {xp}/{nxt}    wallet {coin(s['coins'])}"
+        f"    missions {len(s['missions'])}/{len(MISSIONS)}")
+    say(f"\n  {col('Target organisations', 'B')} ({len(s['orgs'])})")
+    if not s["orgs"]:
+        say(col("    none yet — kingnet market", "d"))
+    for dom, o in s["orgs"].items():
+        live = col("●", "g") if container_running(o["container"]) else col("○", "d")
+        say(f"    {live} {col(dom, 'c'):<32} [{o['type']}]  {web_url(dom, ORGS[o['type']]['login'])}")
+    say(f"\n  {col('Campaigns', 'B')} ({len(s['campaigns'])})")
+    if not s["campaigns"]:
+        say(col("    none — kingnet phish start --target <domain>", "d"))
+    for cid, c in s["campaigns"].items():
+        live = col("● running", "g") if c.get("running") and container_running(c["container"]) else col("○ stopped", "d")
+        say(f"    {live}  {col(c.get('phish_domain', c['target']), 'r')} → {col(c['phish_url'], 'b')}")
+    sm = _console_summary()
+    if sm:
+        say(f"\n  {col('Loot', 'B')}:  creds {col(sm['credentials'], 'g')}  ·  2FA {col(sm['otps'], 'g')}  ·  "
+            f"cookies {col(sm['cookies'], 'y')}  ·  passkey-rejected {col(sm.get('webauthn_rejected', 0), 'r')}")
+    # suggest the next action
+    if not s["orgs"]:
+        step = "kingnet buy kingmail --domain acme-mail.kingnet.lab"
+    elif not s["campaigns"]:
+        step = "kingnet phish start --target " + next(iter(s["orgs"]))
+    elif sm and sm["cookies"] == 0:
+        step = "open the phishing link, sign in as the victim, then `kingnet sessions`"
+    else:
+        step = "kingnet sessions   → then hijack a victim"
+    say(f"\n  {col('Next', 'B')}:  {col(step, 'c')}")
 
 
 def cmd_hijack(args):
@@ -644,6 +701,7 @@ def build_parser():
     add("up", cmd_up, "build images + start the base lab (attacker console)")
     add("down", cmd_down, "stop all KINGNET containers (keeps your world state)")
     add("status", cmd_status, "show wallet, orgs and campaigns at a glance")
+    add("world", cmd_world, "live dashboard: operator level, orgs, campaigns and loot")
     add("wallet", cmd_wallet, "show your KingCoins balance and recent transactions")
     add("market", cmd_market, "browse the marketplace of target orgs you can buy")
 
@@ -698,7 +756,7 @@ def cmd_help(args):
     if not topic:
         banner()
         say("\n  " + col("COMMANDS", "B"))
-        groups = [("Set up", ["doctor", "up", "down", "status", "hosts"]),
+        groups = [("Set up", ["doctor", "up", "down", "status", "world", "hosts"]),
                   ("Economy", ["wallet", "market", "buy", "missions", "mission"]),
                   ("Attack", ["targets", "phish", "sessions", "hijack"]),
                   ("Defend / learn", ["defend", "tutorial"]),

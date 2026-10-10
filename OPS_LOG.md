@@ -1,6 +1,12 @@
 # KINGNET — Ops / Work Log
 _Newest on top. See DESIGN.md for the full plan._
 
+### 2026-10-10 — Phase 4 #2 + #4: auto mission detection + `kingnet world` dashboard
+- **Console `/api/summary`** — machine-readable capture counts (victims/credentials/otps/cookies/webauthn_rejected/exfils + per-track has_cookie/user) for the CLI.
+- **`kingnet sessions`** rewritten to read that summary: shows the loot and the victims with a stolen session (`kingnet hijack <track>`), and **auto-completes the `session-thief` mission** when a cookie is captured. (`first-blood` on phish, `defender` on KingVault buy, `account-takeover` on a successful hijack were already auto.)
+- **XP + levels** — missions/buys/campaigns award XP; `level_of(xp)=1+xp//250`; level-up message on mission complete.
+- **`kingnet world`** — a live operator dashboard: level/XP/wallet/missions, orgs (live dot + domain URL), campaigns (phish domain → link), console loot line, and a context-aware "Next:" suggestion. Verified end-to-end via dry-run (level 2 @ 415 XP after buy+buy+phish; graceful when the console is offline).
+
 ### 2026-10-10 — Phase 4 #1: lab router + real domains in the browser
 - **`router/`** — a Host-header reverse proxy (FastAPI+httpx, pass-through, forwards `*.kingnet.lab` → `http://<host>:8080` on the lab network; `/healthz`; refuses non-lab hosts). Smoke-tested (healthz ok, non-lab→404, lab-no-backend→502).
 - **CLI wired up:** `kingnet up` now builds+runs the router on `127.0.0.1:80` and gives the console the alias `console.kingnet.lab`. Every org gets a `--network-alias <domain>` and is shown as `http://<domain>`; **KingVault origin/rp-id now bind to its domain** (so browser WebAuthn works and the phish origin mismatches). `phish start` mints a **look-alike phishing domain** (`login-<org>.kingnet.lab`, or `--phish-domain`) on its own alias with `PROXY_PUBLIC_URL` set to it — a genuinely different origin from the real org.
