@@ -1,6 +1,11 @@
 # KINGNET — Ops / Work Log
 _Newest on top. See DESIGN.md for the full plan._
 
+### 2026-10-10 — SEO pass on the lab + site-wide link from kasspar.com
+- **`lessons/build_site.py` upgraded for SEO:** unique per-page `<title>` + meta description (keyword-targeted per attack/defense), `<link rel=canonical>`, Open Graph + Twitter tags, `robots` meta, and JSON-LD structured data (Course + ItemList on the overview; LearningResource + BreadcrumbList per lesson — all validated). Now also emits `sitemap.xml`, `robots.txt` (with Sitemap line) and a `favicon.svg`. Rebuilt + redeployed to https://lab.kasspar.com (all live: title, 9-URL sitemap, favicon, canonicals).
+- **Linked the lab across kasspar.com:** homepage already had a nav link + a dedicated "HANDS-ON LAB" section (+ source link); propagated the **Lab** nav link (header + footer) to all 17 inner pages via an idempotent script (server backup `/root/kasspar-pages-backup-*.tgz`). Internal links from the main site aid the lab's discovery/indexing.
+- **Ranking note:** did the strong on-page SEO; a #1 ranking can't be guaranteed (depends on competition, backlinks, domain age, time). Remaining user action: submit `https://lab.kasspar.com/sitemap.xml` in Google Search Console and request indexing.
+
 ### 2026-10-10 — Lessons published (staged private) + repo made public ✅
 - **Static site generator** `lessons/build_site.py` (Python-Markdown): renders the 8 lessons + an overview into a self-contained styled site (sidebar nav, LAB-ONLY banner, GitHub link). Build output `lessons/_site/` is gitignored; `markdown` added to `scripts/requirements-dev.txt`.
 - **Deployed to `https://lab.kasspar.com`** on the CyberPanel/OpenLiteSpeed VPS (84.247.182.143 = ns1 + web): `createChild` under the kasspar.com website (docroot `/home/kasspar.com/public_html/lab.kasspar.com`), static files shipped there. **Staged PRIVATE behind HTTP Basic Auth** (OLS `realm`+`context /` in the child `vhost.conf`, htpasswd at `/home/kasspar.com/.lab_htpasswd`; the password is NOT stored in this repo). Real **Let's Encrypt** cert issued; trusted TLS verified (401 without creds, 200 with, on both NS).
