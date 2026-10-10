@@ -1,0 +1,3 @@
+# Test-only: a software WebAuthn authenticator that plays the victim's browser in
+# scripts/passkey_test.sh. Not needed to run the lab itself.
+soft-webauthn

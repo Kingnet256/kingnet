@@ -5,41 +5,83 @@
  :root{--brand:#0b7a4b;--ink:#10231a;--muted:#4b635a}
  *{box-sizing:border-box} body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
    font:15px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:#f1f6f3}
- .card{width:360px;max-width:92vw;background:#fff;border:1px solid #dbe7e1;border-radius:14px;padding:26px 24px;box-shadow:0 8px 30px rgba(11,122,75,.08)}
+ .card{width:380px;max-width:92vw;background:#fff;border:1px solid #dbe7e1;border-radius:14px;padding:26px 24px;box-shadow:0 8px 30px rgba(11,122,75,.08)}
  .logo{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#0b7a4b,#19b06e);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:20px}
  h1{font-size:19px;margin:14px 0 2px} .sub{color:var(--muted);font-size:13px;margin-bottom:18px}
  label{font-size:13px;color:var(--muted)} input{width:100%;padding:10px 12px;border:1px solid #cfe0d8;border-radius:9px;font-size:15px;margin:5px 0 14px}
  button{width:100%;padding:11px;border:0;border-radius:9px;background:var(--brand);color:#fff;font-weight:600;font-size:15px;cursor:pointer}
+ button:disabled{opacity:.6;cursor:default}
  .pill{display:inline-block;font-size:11px;font-weight:700;color:#0b7a4b;background:#e3f3ec;border:1px solid #bfe6d4;border-radius:999px;padding:3px 9px;margin-bottom:12px}
  .note{font-size:12px;color:var(--muted);margin-top:14px;border-top:1px solid #eef3f1;padding-top:12px}
- #msg{font-size:13px;margin-top:12px;min-height:18px}
- .ok{color:#0b7a4b} .err{color:#c0392b}
+ #msg{font-size:13px;margin-top:12px;min-height:18px} .ok{color:#0b7a4b} .err{color:#c0392b}
+ .warn{background:#fff5e6;border:1px solid #f0d49b;color:#8a5a00;border-radius:9px;padding:10px 12px;font-size:12px;margin-bottom:14px;display:none}
+ code{background:#eef3f1;border-radius:4px;padding:1px 4px}
 </style></head><body>
  <div class="card">
   <div class="logo">🔐</div>
   <span class="pill" style="margin-top:12px">PASSKEY SIGN-IN</span>
   <h1>KingVault</h1>
   <div class="sub">Phishing-resistant login — no password, no code to steal.</div>
+  <div id="warn" class="warn"></div>
   <label for="u">Account</label>
   <input id="u" value="victim@kingvault.lab" autocomplete="username">
   <button id="go">Sign in with passkey</button>
   <div id="msg"></div>
   <div class="note">
-   <b>Lab note:</b> this page’s sign-in uses a real origin-bound WebAuthn assertion.
-   If you reach KingVault <i>through the KINGNET proxy</i>, the assertion is bound to the
-   proxy’s origin and this service rejects it — the attack that beats KingMail fails here.
-   The scripted end-to-end proof lives in <code>scripts/passkey_test.sh</code>.
+   <b>Lab note:</b> this uses a real browser passkey (<code>navigator.credentials</code>).
+   The signature is bound to this page’s origin — <code id="orig"></code>. Reach KingVault
+   through the KINGNET proxy and the origin won’t match <code>{{ origin }}</code>, so the
+   real service refuses the assertion. The scripted proof is <code>scripts/passkey_test.sh</code>.
   </div>
  </div>
 <script>
-// Minimal lab client. A production site would call navigator.credentials.get();
-// here the ceremony is driven by the test harness, but this shows the shape and
-// reports the result so you can see the origin this page lives on.
+const EXPECTED = "{{ origin }}";
 const msg = document.getElementById('msg');
-document.getElementById('go').onclick = async () => {
-  msg.textContent = 'This browser demo is wired in Phase 3; run scripts/passkey_test.sh for the full proof.';
-  msg.className = '';
-  console.log('[KingVault] page origin =', window.location.origin);
-};
+const go  = document.getElementById('go');
+document.getElementById('orig').textContent = window.location.origin;
+if (window.location.origin !== EXPECTED) {
+  const w = document.getElementById('warn');
+  w.style.display = 'block';
+  w.innerHTML = "⚠️ You are on <b>" + window.location.origin + "</b>, not the real KingVault " +
+    "(<b>" + EXPECTED + "</b>). This looks like an AiTM proxy — a passkey sign-in here will be <b>rejected</b>.";
+}
+
+function b64toBuf(s){ s=s.replace(/-/g,'+').replace(/_/g,'/'); const pad=s.length%4?'='.repeat(4-s.length%4):'';
+  const bin=atob(s+pad); const u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i); return u.buffer; }
+function bufToB64(buf){ const b=new Uint8Array(buf); let s=''; for(const x of b)s+=String.fromCharCode(x);
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+const serAtt=c=>({id:c.id,rawId:bufToB64(c.rawId),type:c.type,clientExtensionResults:c.getClientExtensionResults?.()||{},
+  response:{clientDataJSON:bufToB64(c.response.clientDataJSON),attestationObject:bufToB64(c.response.attestationObject)}});
+const serAsr=c=>({id:c.id,rawId:bufToB64(c.rawId),type:c.type,clientExtensionResults:c.getClientExtensionResults?.()||{},
+  response:{clientDataJSON:bufToB64(c.response.clientDataJSON),authenticatorData:bufToB64(c.response.authenticatorData),
+            signature:bufToB64(c.response.signature),userHandle:c.response.userHandle?bufToB64(c.response.userHandle):null}});
+const postJSON=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+
+async function enroll(username){
+  const o = await (await postJSON('/register/begin',{username})).json();
+  o.challenge = b64toBuf(o.challenge); o.user.id = b64toBuf(o.user.id);
+  if (o.excludeCredentials) o.excludeCredentials = o.excludeCredentials.map(c=>({...c,id:b64toBuf(c.id)}));
+  const att = await navigator.credentials.create({publicKey:o});
+  const r = await postJSON('/register/complete',{username,credential:serAtt(att)});
+  if(!r.ok) throw new Error((await r.json()).error||'registration failed');
+}
+async function signIn(){
+  const username = document.getElementById('u').value.trim();
+  go.disabled = true; msg.className=''; msg.textContent='Waiting for your passkey…';
+  try{
+    let begin = await postJSON('/login/begin',{username});
+    if(begin.status===404){ msg.textContent='No passkey yet — enrolling one on this device…'; await enroll(username); begin = await postJSON('/login/begin',{username}); }
+    const o = await begin.json();
+    o.challenge = b64toBuf(o.challenge);
+    o.allowCredentials = (o.allowCredentials||[]).map(c=>({...c,id:b64toBuf(c.id)}));
+    const asr = await navigator.credentials.get({publicKey:o});
+    const res = await postJSON('/login/complete',{username,credential:serAsr(asr)});
+    if(res.ok){ msg.className='ok'; msg.textContent='✅ Verified — opening your vault…'; window.location='/vault'; }
+    else{ const e=await res.json(); msg.className='err';
+      msg.textContent = (e.phishing_resistant? '🛑 Rejected (phishing-resistant): ' : '❌ ') + (e.error||'login failed'); }
+  }catch(err){ msg.className='err'; msg.textContent='❌ '+(err.message||err); }
+  finally{ go.disabled=false; }
+}
+go.onclick = signIn;
 </script>
 </body></html>

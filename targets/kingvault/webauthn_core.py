@@ -1,6 +1,11 @@
 """
 Minimal, FAITHFUL WebAuthn core for the KINGNET lab.
 
+NOTE (Phase 3): KingVault's running service (`app.py`) now uses the full standard
+`webauthn` library so a real browser passkey works. THIS module is kept as the readable
+teaching explainer — the same origin-binding mechanism in plain Python, with no CBOR/COSE
+machinery in the way. Lesson 5 points here to show *why* the library's origin check works.
+
 This implements the security-relevant heart of WebAuthn / FIDO2 passkeys: an
 origin-bound, challenge-response signature. It is deliberately small and readable
 (students are meant to read it), and it is NOT the full CTAP2 / attestation stack —

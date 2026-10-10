@@ -112,7 +112,9 @@ async def proxy(request: Request, path: str):
     if path.endswith("login/complete") and request.method == "POST":
         try:
             payload = json.loads(body.decode("utf-8", "ignore"))
-            cdj = payload.get("client_data_json", "")
+            # standard WebAuthn: credential.response.clientDataJSON; (older flat shape kept too)
+            cdj = (payload.get("client_data_json")
+                   or payload.get("credential", {}).get("response", {}).get("clientDataJSON", ""))
             bound = None
             if cdj:
                 bound = json.loads(base64.urlsafe_b64decode(cdj + "=" * (-len(cdj) % 4))).get("origin")

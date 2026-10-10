@@ -4,13 +4,22 @@
 (WebAuthn/FIDO2) instead of a password + code. Point the *same* KINGNET proxy at it and
 the attack that owned KingMail simply fails.
 
-## See it
+## See it — in a browser
+With the lab running (`docker compose up`), open **http://localhost:8082/login** and click
+*Sign in with passkey*. Your browser creates/uses a real passkey (`navigator.credentials`)
+and you land in the vault. Now open the phishing proxy for KingVault,
+**http://localhost:8444/login** — the page warns you're on the wrong origin, and if you try
+to sign in, the real service **rejects** the relayed assertion. Same proxy that owned
+KingMail; here it gets nothing.
+
+## See it — scripted
 ```bash
-./scripts/passkey_test.sh
+./scripts/passkey_test.sh      # needs the test dep: pip install -r scripts/requirements-dev.txt
 ```
 It enrolls a passkey on the real KingVault origin, logs in honestly (**succeeds**), then
 runs the identical login **through the proxy** (**rejected, HTTP 401**), and shows the
-attacker console marking the captured assertion useless.
+attacker console marking the captured assertion useless. (The service uses the standard
+`webauthn` library; the test plays the browser with a software authenticator.)
 
 ## Why it works — origin binding
 When you use a passkey, your authenticator **signs the exact origin of the page you're on**

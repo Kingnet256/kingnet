@@ -70,8 +70,8 @@ Then open:
 | http://localhost:8081/phone | **Victim's authenticator** — shows the current 6-digit code to type |
 | http://localhost:8081/security | **Defender** — detection alerts once the stolen cookie is replayed |
 | http://localhost:9000/ | **Attacker console** — watch captures land, then click *Hijack* |
-| http://localhost:8444/login | **Passkey attack** — the same proxy aimed at KingVault (it fails) |
-| http://localhost:8082/login | **KingVault** — the passkey portal, reached directly (the real origin) |
+| http://localhost:8082/login | **KingVault** — the passkey portal (real origin). Click *Sign in with passkey* to enroll + log in with a genuine browser passkey. |
+| http://localhost:8444/login | **Passkey attack** — the same proxy aimed at KingVault; it warns you're on the wrong origin and the sign-in is rejected. |
 
 Walk it yourself: log in at `:8443` as `victim@kingmail.lab` / `Summer2026!`, enter the code from
 `:8081/phone`, and you'll reach the inbox. Now look at `:9000` — your password, your code and your
@@ -83,7 +83,8 @@ credentials at all.
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r proxy/requirements.txt -r console/requirements.txt \
-  -r targets/kingmail/requirements.txt -r targets/kingvault/requirements.txt
+  -r targets/kingmail/requirements.txt -r targets/kingvault/requirements.txt \
+  -r scripts/requirements-dev.txt          # test-only software authenticator
 ./scripts/local_test.sh       # KingMail: full attack chain + detection, asserted
 ./scripts/passkey_test.sh     # KingVault: proves the passkey defeats the same proxy
 ```
@@ -103,7 +104,7 @@ Both scripts are the project's smoke tests — they exit non-zero if any stage b
 - **Phase 0 — ✅ done:** design, scaffold, lab-only framing, license.
 - **Phase 1 — ✅ done:** full KingMail AiTM scenario end-to-end (login + OTP → capture + session hijack), verified by `scripts/local_test.sh`.
 - **Phase 2 — ✅ done:** the defense half — a passkey/FIDO2 target (`KingVault`) KINGNET **cannot** phish (verified by `scripts/passkey_test.sh`), detection signals on KingMail (new device / impossible travel / token reuse, at `/security`), and guided `lessons/`.
-- **Phase 3 — next:** a browser-driven WebAuthn UI for KingVault, more scenarios (`KingBank`, OAuth consent phishing, cookie-theft variants), and publishing the lessons on kasspar.com.
+- **Phase 3 — in progress:** ✅ real browser-driven WebAuthn for KingVault (standard `webauthn` library + `navigator.credentials` UI, so a genuine browser passkey works). Still to do: more scenarios (`KingBank`, OAuth consent phishing, cookie-theft variants) and publishing the lessons on kasspar.com.
 
 ## License
 

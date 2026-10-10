@@ -1,42 +1,44 @@
 """
-KingVault — a LAB-ONLY "secure portal" that logs in with a PASSKEY (WebAuthn/FIDO2)
-instead of password + OTP. It is KINGNET's DEFENSE demo: the exact same AiTM proxy
-that fully owns KingMail cannot phish KingVault, because the passkey assertion is
-cryptographically bound to the origin the victim's browser is actually on.
+KingVault — a LAB-ONLY passkey-protected portal (KINGNET's DEFENSE demo).
 
-Flow (all real, just minimal — see webauthn_core.py):
-  enroll:  POST /register/begin  -> POST /register/complete   (passkey bound to this origin)
-  login:   POST /login/begin     -> POST /login/complete       (origin-bound assertion)
-           success -> sets `kingvault_session` cookie -> /vault
+Phase 3 upgrade: this now speaks REAL, standard WebAuthn (via the `webauthn` library),
+so it works with a genuine browser passkey (navigator.credentials) AND with the scripted
+software authenticator used by the tests — the same endpoints for both.
 
-The security-relevant checks live in webauthn_core.verify_assertion(): the signed
-origin and RP-ID must match THIS service. Relay the assertion from a phishing proxy
-(a different origin) and it is refused. Lab-only.
+The point is unchanged: the same KINGNET AiTM proxy that fully owns KingMail cannot phish
+KingVault, because a WebAuthn assertion is cryptographically bound to the ORIGIN the
+browser is on. Relay it from the proxy (a different origin) and verification fails. The
+origin check is enforced by `verify_authentication_response(expected_origin=...)` below.
+Lab-only.
 """
+import json
 import os
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
-
-import webauthn_core as wa
+from webauthn import (generate_authentication_options, generate_registration_options,
+                      options_to_json, verify_authentication_response,
+                      verify_registration_response)
+from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 
 SECRET = os.environ.get("KINGVAULT_SECRET", "kingnet-lab-kingvault-secret")
 RP_ID = os.environ.get("KINGVAULT_RP_ID", "localhost")
+RP_NAME = "KingVault"
 EXPECTED_ORIGIN = os.environ.get("KINGVAULT_ORIGIN", "http://localhost:8082").rstrip("/")
 SESSION_COOKIE = "kingvault_session"
 
-app = FastAPI(title="KingVault (KINGNET lab target — passkey-protected)")
+app = FastAPI(title="KingVault (KINGNET lab target — real WebAuthn)")
 tpl = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 signer = URLSafeTimedSerializer(SECRET)
 
-# In-memory lab state. Each user may enroll one passkey (public key only — the RP
-# never sees the private key, same as real WebAuthn).
+# In-memory lab state (public keys only — the RP never sees the private key).
 USERS: dict[str, dict] = {
-    "victim@kingvault.lab": {"name": "Vicky Target", "credential_id": None, "public_key": None},
+    "victim@kingvault.lab": {"name": "Vicky Target", "credential_id": None,
+                             "public_key": None, "sign_count": 0},
 }
-PENDING: dict[str, dict] = {}  # username -> {"challenge":..., "type":...}
+PENDING: dict[str, bytes] = {}  # username -> current challenge
 
 
 def current_user(request: Request):
@@ -89,24 +91,28 @@ async def register_begin(payload: dict):
     username = payload.get("username", "")
     if username not in USERS:
         return JSONResponse({"error": "unknown user"}, status_code=404)
-    challenge = wa.new_challenge()
-    PENDING[username] = {"challenge": challenge, "type": "create"}
-    return {"challenge": challenge, "rp_id": RP_ID, "origin": EXPECTED_ORIGIN, "username": username}
+    opts = generate_registration_options(
+        rp_id=RP_ID, rp_name=RP_NAME, user_name=username, user_display_name=USERS[username]["name"])
+    PENDING[username] = opts.challenge
+    # options_to_json gives the exact base64url JSON a browser's navigator.credentials wants.
+    return JSONResponse(content=json.loads(options_to_json(opts)))
 
 
 @app.post("/register/complete")
-async def register_complete(payload: dict):
-    username = payload.get("username", "")
-    pend = PENDING.get(username)
-    if not pend or pend.get("type") != "create":
+async def register_complete(request: Request):
+    body = await request.json()
+    username = body.get("username", "")
+    challenge = PENDING.get(username)
+    if username not in USERS or not challenge:
         return JSONResponse({"error": "no pending registration"}, status_code=400)
-    ok, reason = wa.verify_registration(
-        expected_origin=EXPECTED_ORIGIN, expected_challenge=pend["challenge"],
-        client_data_json=payload.get("client_data_json", ""))
-    if not ok:
-        return JSONResponse({"error": reason}, status_code=400)
-    USERS[username]["credential_id"] = payload.get("credential_id")
-    USERS[username]["public_key"] = payload.get("public_key_pem")
+    try:
+        v = verify_registration_response(
+            credential=body["credential"], expected_challenge=challenge,
+            expected_rp_id=RP_ID, expected_origin=EXPECTED_ORIGIN)
+    except Exception as e:
+        return JSONResponse({"error": f"registration failed: {e}"}, status_code=400)
+    USERS[username].update(credential_id=v.credential_id, public_key=v.credential_public_key,
+                           sign_count=v.sign_count)
     PENDING.pop(username, None)
     return {"ok": True}
 
@@ -119,35 +125,33 @@ async def login_begin(payload: dict):
     u = USERS.get(username)
     if not u or not u.get("credential_id"):
         return JSONResponse({"error": "no passkey enrolled"}, status_code=404)
-    challenge = wa.new_challenge()
-    PENDING[username] = {"challenge": challenge, "type": "get"}
-    return {"challenge": challenge, "rp_id": RP_ID, "origin": EXPECTED_ORIGIN,
-            "allow_credentials": [u["credential_id"]]}
+    opts = generate_authentication_options(
+        rp_id=RP_ID, allow_credentials=[PublicKeyCredentialDescriptor(id=u["credential_id"])])
+    PENDING[username] = opts.challenge
+    return JSONResponse(content=json.loads(options_to_json(opts)))
 
 
 @app.post("/login/complete")
-async def login_complete(payload: dict):
-    username = payload.get("username", "")
+async def login_complete(request: Request):
+    body = await request.json()
+    username = body.get("username", "")
     u = USERS.get(username)
-    pend = PENDING.get(username)
-    if not u or not u.get("public_key") or not pend or pend.get("type") != "get":
+    challenge = PENDING.get(username)
+    if not u or not u.get("public_key") or not challenge:
         return JSONResponse({"error": "no pending login"}, status_code=400)
-
-    assertion = {
-        "credential_id": payload.get("credential_id"),
-        "client_data_json": payload.get("client_data_json"),
-        "authenticator_data": payload.get("authenticator_data"),
-        "signature": payload.get("signature"),
-    }
-    ok, reason = wa.verify_assertion(
-        public_key_pem=u["public_key"], expected_rp_id=RP_ID,
-        expected_origin=EXPECTED_ORIGIN, expected_challenge=pend["challenge"],
-        assertion=assertion)
+    try:
+        v = verify_authentication_response(
+            credential=body["credential"], expected_challenge=challenge,
+            expected_rp_id=RP_ID, expected_origin=EXPECTED_ORIGIN,
+            credential_public_key=u["public_key"], credential_current_sign_count=u["sign_count"],
+            require_user_verification=False)
+    except Exception as e:
+        # The AiTM-defeat path: a relayed assertion lands here. The library's origin check
+        # refuses it because clientDataJSON.origin is the phishing proxy, not us.
+        PENDING.pop(username, None)
+        return JSONResponse({"error": f"{e}", "phishing_resistant": True}, status_code=401)
+    u["sign_count"] = v.new_sign_count
     PENDING.pop(username, None)
-    if not ok:
-        # This is the AiTM-defeat path: a relayed assertion lands here and is refused.
-        return JSONResponse({"error": reason, "phishing_resistant": True}, status_code=401)
-
     resp = JSONResponse({"ok": True, "redirect": "/vault"})
     resp.set_cookie(SESSION_COOKIE, signer.dumps(username), httponly=True, samesite="lax", max_age=3600)
     return resp

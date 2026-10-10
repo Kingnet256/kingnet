@@ -1,6 +1,14 @@
 # KINGNET — Ops / Work Log
 _Newest on top. See DESIGN.md for the full plan._
 
+### 2026-10-10 — Phase 3 started: real browser WebAuthn for KingVault ✅
+- **KingVault now speaks standard WebAuthn** via the `webauthn` (py_webauthn 3.0.1) library, so a genuine browser passkey works — not just the scripted ceremony. `app.py` rewritten: `/register/begin|complete` + `/login/begin|complete` use `generate_*_options` / `verify_*_response`; origin enforced by `verify_authentication_response(expected_origin=...)`. Added `webauthn` to `targets/kingvault/requirements.txt`.
+- **Browser UI** (`templates/login.html`): real `navigator.credentials.create/get`, base64url⇄ArrayBuffer helpers, auto-enroll-then-login, and an origin cue that warns when you're on a proxy origin (≠ the real RP). Node `--check` confirms the JS parses.
+- **webauthn_core.py** kept as the readable *explainer* (plain-Python origin binding); a note at top says the service now uses the standard library. Lesson 5 updated with both the browser and scripted walkthroughs + the test dep.
+- **Tests:** `scripts/_passkey_ceremony.py` rewritten to drive standard WebAuthn with `soft-webauthn` (SoftWebauthnDevice) against the exact endpoints the browser uses — enroll → honest login (200) → proxied login rejected with py_webauthn's own `Unexpected client data origin` (HTTP 401, no cookie) → console shows it failed. New `scripts/requirements-dev.txt` (soft-webauthn, test-only). Proxy WebAuthn capture now reads the nested `credential.response.clientDataJSON`.
+- **Verified:** `passkey_test.sh` PASS (standard WebAuthn end-to-end); `local_test.sh` still PASS; both clean back-to-back. Browser click-through can't be driven from this sandbox (the user's Chrome can't reach the sandbox's localhost) — server+protocol proven by the soft-webauthn test over identical endpoints; JS syntax-checked. Run it for real on your own machine via `docker compose up` → http://localhost:8082/login (and :8444 for the failing phish).
+- **Status:** Phase 3 item 1 (browser WebAuthn UI) done. Remaining Phase 3: KingBank scenario, OAuth consent phishing, cookie-theft variants, publish lessons on kasspar.com. To be committed + pushed.
+
 ### 2026-10-10 — Phase 2 complete + verified (defense half) ✅
 - **Passkey target `targets/kingvault/`** — a WebAuthn/FIDO2 lab portal the SAME AiTM proxy cannot phish.
   - Wrote `webauthn_core.py`: a minimal but faithful WebAuthn core (real P-256 ECDSA via `cryptography`, origin-bound `clientDataJSON`, rpIdHash check, challenge check). Deliberately readable — students read it. `verify_assertion()` holds the origin check that defeats AiTM; added `build_client_data()` + `verify_registration()` for enrollment.
