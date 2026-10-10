@@ -6,7 +6,8 @@ _Newest on top. See DESIGN.md for the full plan._
 - **Deployed to `https://lab.kasspar.com`** on the CyberPanel/OpenLiteSpeed VPS (84.247.182.143 = ns1 + web): `createChild` under the kasspar.com website (docroot `/home/kasspar.com/public_html/lab.kasspar.com`), static files shipped there. **Staged PRIVATE behind HTTP Basic Auth** (OLS `realm`+`context /` in the child `vhost.conf`, htpasswd at `/home/kasspar.com/.lab_htpasswd`; the password is NOT stored in this repo). Real **Let's Encrypt** cert issued; trusted TLS verified (401 without creds, 200 with, on both NS).
 - **DNS fix (matches the master/slave note):** CyberPanel's `createDNSRecord` added `lab` A→84.247.182.143 but did NOT bump the kasspar.com SOA serial, so the ns2 slave (89.117.63.131) stayed at serial 5 and NXDOMAIN'd the subdomain — which also failed LE's secondary validation. Fixed with `pdnsutil increase-serial kasspar.com` (→6) + `pdns_control notify kasspar.com`; ns2 synced to 6 and now resolves `lab`. **Takeaway for future subdomains: always increase-serial + notify after a CLI DNS add.**
 - **GitHub repo `Kingnet256/kingnet` flipped PUBLIC** (secret scan clean — only lab placeholders in-tree).
-- **Status: KINGNET Phases 0–3 COMPLETE.** Lessons are staged privately for review; flip to fully public by removing the Basic Auth block from the child `vhost.conf` (+ restart lsws) when ready.
+- **Went FULLY PUBLIC (2026-10-10):** removed the Basic Auth realm/context from the child `vhost.conf` (backup kept as `vhost.conf.bak-public-*`) + restarted lsws. `https://lab.kasspar.com` now serves all lessons with no login, trusted LE cert. `.lab_htpasswd` left in place but inert (no longer referenced).
+- **Status: KINGNET Phases 0–3 COMPLETE and lessons LIVE/public.**
 
 ### 2026-10-10 — Phase 3 item 4: cookie-theft variants ✅
 - **Two ways to steal the session WITHOUT the AiTM proxy, each with its defense**, all on KingMail.
