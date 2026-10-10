@@ -1,6 +1,18 @@
 # KINGNET — Ops / Work Log
 _Newest on top. See DESIGN.md for the full plan._
 
+### 2026-10-10 — Phase 2 complete + verified (defense half) ✅
+- **Passkey target `targets/kingvault/`** — a WebAuthn/FIDO2 lab portal the SAME AiTM proxy cannot phish.
+  - Wrote `webauthn_core.py`: a minimal but faithful WebAuthn core (real P-256 ECDSA via `cryptography`, origin-bound `clientDataJSON`, rpIdHash check, challenge check). Deliberately readable — students read it. `verify_assertion()` holds the origin check that defeats AiTM; added `build_client_data()` + `verify_registration()` for enrollment.
+  - `app.py`: register/begin+complete, login/begin+complete, session cookie on success; origin + RP-ID verified server-side. Templates + Dockerfile + requirements (adds `cryptography`).
+- **Proxy:** added a generic WebAuthn capture — on a `*/login/complete` relay it records the bound origin + the real service's verdict, so the console shows the captured assertion is useless (added `base64`/`json` imports).
+- **Attacker console:** `_sessions()` now tracks `webauthn_assertion`; dashboard renders a green "passkey target — attack FAILED / REJECTED" panel. Hijack replay now sends a distinct attacker fingerprint (UA + `X-Lab-Geo`) so detection fires.
+- **Detection on KingMail:** server-side session store keyed by a per-login `sid` (cookie is now `email|sid`); `current_user()` requires the sid to exist. Each session is fingerprinted at issuance (UA + lab geo + IP); replay from a new fingerprint raises **new device / impossible travel / session token reuse**, shown as an inbox banner and on a new `/security` page (`security.html`).
+- **Tests:** new `scripts/passkey_test.sh` + `scripts/_passkey_ceremony.py` (victim client runs the real ceremony honest-vs-proxied). Extended `scripts/local_test.sh` with Step 6 (detection). Teardown switched to `kill -9` so rapid reruns don't collide on ports. **Both scripts pass clean (EXIT 0).** No Docker on this box; verified via the scripts.
+- **Docker:** `docker-compose.yml` adds `kingvault` (8082) + `kingnet-proxy-vault` (8444, same proxy image aimed at the vault). **Lessons:** `lessons/` now has an index + 5 guided walkthroughs (attack → why 2FA fails → detection → passkeys). README/DESIGN roadmaps updated: Phase 0/1/2 done.
+- **Verified end-to-end:** KingMail chain + detection all green; KingVault honest login succeeds, AiTM-relayed assertion rejected (ORIGIN MISMATCH, HTTP 401, no cookie leaked), console shows it failed.
+- **Status:** Phases 0–2 complete. Next = Phase 3 (browser WebAuthn UI, KingBank/OAuth scenarios, publish lessons on kasspar.com). To be committed + pushed.
+
 ### 2026-10-09 — Phase 1 MVP finished + verified end-to-end ✅
 - **Green-lit Phase 1** (Python/FastAPI + Docker Compose stack confirmed; first scenario = KingMail login+OTP). Picked up the partial scaffold from earlier in the day and finished it.
 - **Fixed a blocking bug:** every `TemplateResponse(...)` used the old Starlette signature `TemplateResponse("name.html", {"request": ...})`. Under Starlette 1.7.0 that passes the template name where `request` is expected → `TypeError: unhashable type: 'dict'` → HTTP 500 on every page. Rewrote all 8 calls (6 in `targets/kingmail/app.py`, 2 in `console/app.py`) to `TemplateResponse(request, "name.html", {...})`.

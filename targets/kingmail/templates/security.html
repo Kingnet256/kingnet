@@ -1,0 +1,38 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Security activity · KingMail</title>
+<style>
+ :root{--ink:#202124;--muted:#5f6368}
+ *{box-sizing:border-box} body{margin:0;font:15px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:#fff}
+ header{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid #e3e6eb}
+ .m{width:28px;height:28px;border-radius:7px;background:linear-gradient(135deg,#1a73e8,#4f9bff);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:800}
+ .brand{font-weight:600} .spacer{flex:1}
+ a.btn{font-size:13px;color:#1a73e8;text-decoration:none;border:1px solid #dadce0;padding:6px 10px;border-radius:7px}
+ .wrap{max-width:760px;margin:0 auto;padding:22px 16px}
+ h1{font-size:20px;margin:0 0 4px} .sub{color:var(--muted);margin-bottom:18px}
+ .none{color:var(--muted);padding:30px 0;text-align:center}
+ .alert{border:1px solid #f5a79e;background:#fdecea;border-radius:10px;padding:14px;margin-bottom:12px}
+ .alert h3{margin:0 0 6px;color:#b1281b;font-size:15px}
+ .kv{font-size:13px;color:#3c4043} .kv b{color:#202124}
+ .tag{display:inline-block;background:#b1281b;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:2px 9px;margin:2px 6px 2px 0}
+</style></head><body>
+ <header><span class="m">K</span><span class="brand">KingMail</span><span class="spacer"></span>
+  <a class="btn" href="/inbox">Back to inbox</a></header>
+ <div class="wrap">
+  <h1>Account security activity</h1>
+  <div class="sub">Detection signals raised on your sessions. The AiTM login itself passed 2FA and looked normal — but replaying the stolen cookie from another machine does not.</div>
+  {% if not alerts %}
+   <div class="none">No anomalies yet. Once the attacker replays the stolen session cookie, it shows up here.</div>
+  {% endif %}
+  {% for a in alerts %}
+   <div class="alert">
+    <h3>⚠️ Suspicious session use — {{ a.email }}</h3>
+    <div>{% for kind, detail in a.anomalies %}<span class="tag">{{ kind }}</span>{% endfor %}</div>
+    <div class="kv" style="margin-top:8px">
+     {% for kind, detail in a.anomalies %}<div><b>{{ kind }}:</b> {{ detail }}</div>{% endfor %}
+     <div style="margin-top:6px"><b>Seen from:</b> {{ a.fp.ua }} · {{ a.fp.geo }} · {{ a.fp.ip }}</div>
+    </div>
+   </div>
+  {% endfor %}
+ </div>
+</body></html>

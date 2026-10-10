@@ -10,6 +10,7 @@ Helper: /phone shows the victim's current 6-digit code (simulates their authenti
 """
 import os
 import time
+import uuid
 
 import pyotp
 from fastapi import FastAPI, Form, Request
@@ -20,6 +21,16 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 SECRET = os.environ.get("KINGMAIL_SECRET", "kingnet-lab-kingmail-secret")
 SESSION_COOKIE = "kingmail_session"
 PENDING_COOKIE = "kingmail_pending"
+
+# ---- Phase 2 detection: a server-side session store that fingerprints each login.
+# TOTP did NOT stop the AiTM theft, but the stolen cookie is replayed from the
+# attacker's own machine — a different device, in a different place. We fingerprint
+# each session at issuance and raise alerts when the SAME cookie shows up from a new
+# fingerprint (new device / impossible travel / token reuse from two endpoints).
+# `X-Lab-Geo` is a lab stand-in for a real GeoIP lookup; absent = the victim's ISP.
+SESSIONS: dict[str, dict] = {}   # sid -> {email, created, fps: [fingerprint,...]}
+ALERTS: list[dict] = []          # newest first
+LAB_DEFAULT_GEO = os.environ.get("KINGMAIL_DEFAULT_GEO", "Johannesburg, ZA")
 
 # Seeded lab "victim" account. TOTP secret is fixed so the student can read codes
 # from /phone (their simulated authenticator). All lab-only, obviously.
@@ -53,11 +64,48 @@ def _unsign(tok: str, max_age: int):
 
 
 def current_user(request: Request):
+    """Return (email, sid) for a valid session, else None. The sid must exist in the
+    server-side store — like a real session, not just a validly-signed value."""
     tok = request.cookies.get(SESSION_COOKIE)
     if not tok:
         return None
-    email = _unsign(tok, max_age=3600)
-    return email if email in USERS else None
+    val = _unsign(tok, max_age=3600)
+    if not val or "|" not in val:
+        return None
+    email, sid = val.split("|", 1)
+    if email not in USERS or sid not in SESSIONS:
+        return None
+    return email, sid
+
+
+def _client_fp(request: Request) -> dict:
+    return {
+        "ua": request.headers.get("user-agent", "unknown"),
+        "geo": request.headers.get("x-lab-geo", LAB_DEFAULT_GEO),
+        "ip": request.client.host if request.client else "?",
+    }
+
+
+def _record_access(sid: str, request: Request) -> list:
+    """Compare this request's fingerprint to the ones seen on this session; raise
+    alerts for anything new. Returns the anomalies for THIS request (for a banner)."""
+    sess = SESSIONS.get(sid)
+    if not sess:
+        return []
+    fp = _client_fp(request)
+    known = sess["fps"]
+    if any(k["ua"] == fp["ua"] and k["geo"] == fp["geo"] for k in known):
+        return []  # a device+place we've already seen on this session — fine
+    anomalies = []
+    if all(k["ua"] != fp["ua"] for k in known):
+        anomalies.append(("new device", fp["ua"][:60]))
+    if all(k["geo"] != fp["geo"] for k in known):
+        anomalies.append(("impossible travel", f"{known[0]['geo']} → {fp['geo']} within seconds"))
+    anomalies.append(("session token reuse", "the same session cookie is now in use from a second client"))
+    known.append(fp)
+    ALERTS.insert(0, {"ts": time.time(), "sid": sid, "email": sess["email"],
+                      "fp": fp, "anomalies": anomalies})
+    return anomalies
 
 
 @app.get("/healthz")
@@ -108,20 +156,32 @@ def otp(request: Request, code: str = Form(...)):
         return tpl.TemplateResponse(request, "otp.html", {"error": "Invalid or expired code."}, status_code=401
         )
     # 2FA OK -> issue the real session cookie (the prize an AiTM attacker steals).
+    # Record the issuing device/location so a later replay can be spotted.
+    sid = uuid.uuid4().hex
+    SESSIONS[sid] = {"email": email, "created": time.time(), "fps": [_client_fp(request)]}
     resp = RedirectResponse("/inbox", status_code=302)
-    resp.set_cookie(SESSION_COOKIE, _sign(email), httponly=True, samesite="lax", max_age=3600)
+    resp.set_cookie(SESSION_COOKIE, _sign(f"{email}|{sid}"), httponly=True, samesite="lax", max_age=3600)
     resp.delete_cookie(PENDING_COOKIE)
     return resp
 
 
 @app.get("/inbox", response_class=HTMLResponse)
 def inbox(request: Request):
-    email = current_user(request)
-    if not email:
+    cu = current_user(request)
+    if not cu:
         return RedirectResponse("/login", status_code=302)
+    email, sid = cu
+    alerts = _record_access(sid, request)  # flags a hijack replay from a new client
     u = USERS[email]
-    return tpl.TemplateResponse(request, "inbox.html", {"email": email, "name": u["name"], "mails": u["inbox"]}
-    )
+    return tpl.TemplateResponse(request, "inbox.html",
+                                {"email": email, "name": u["name"], "mails": u["inbox"], "alerts": alerts})
+
+
+@app.get("/security", response_class=HTMLResponse)
+def security(request: Request):
+    """Account security activity — where defenders (and the student) see the replay
+    get caught, even though the 2FA login itself looked legitimate."""
+    return tpl.TemplateResponse(request, "security.html", {"alerts": ALERTS})
 
 
 @app.get("/logout")

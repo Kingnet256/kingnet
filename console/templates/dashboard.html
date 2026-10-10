@@ -17,6 +17,8 @@
  .cookie{background:#0c1322;border:1px solid #223; border-radius:8px;padding:10px;color:#ffd479;font-size:12px}
  a.hj{display:inline-block;margin-top:12px;background:#ff2e63;color:#fff;text-decoration:none;padding:9px 16px;border-radius:8px;font-weight:700}
  a.hj.off{background:#2a3350;color:#6f7fa8;pointer-events:none}
+ .resist{margin-top:12px;background:#0c1a16;border:1px solid #14432f;border-radius:8px;padding:11px 12px;color:#8fe3bf;font-size:12px}
+ .resist b{color:#38d39f}
 </style></head><body>
  <header><span class="logo">⚡ KINGNET</span><span class="tag">attacker console · lab only</span>
    <span class="live">● live (auto-refresh 4s)</span></header>
@@ -39,8 +41,14 @@
     {% if s.cookie %}
       <div class="cookie">{{ s.cookie.cookie_name }}={{ s.cookie.cookie_value }}</div>
       <a class="hj" href="/hijack/{{ s.track }}">🎭 Hijack this session →</a>
-    {% else %}
+    {% elif not s.webauthn %}
       <a class="hj off">Hijack (need session cookie)</a>
+    {% endif %}
+    {% if s.webauthn %}
+      <div class="resist">🔐 <b>Passkey target — attack FAILED.</b> Captured a WebAuthn assertion
+        bound to <code>{{ s.webauthn.bound_origin }}</code> (our phishing origin).
+        Real service verdict: <b>{{ s.webauthn.verdict }}</b> (HTTP {{ s.webauthn.rp_status }}).
+        Nothing to replay — this is what phishing-resistant MFA looks like.</div>
     {% endif %}
    </div>
   {% endfor %}

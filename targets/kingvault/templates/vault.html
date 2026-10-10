@@ -1,0 +1,25 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vault · KingVault</title>
+<style>
+ :root{--brand:#0b7a4b;--ink:#10231a;--muted:#4b635a}
+ *{box-sizing:border-box} body{margin:0;font:15px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:#f1f6f3}
+ header{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid #dbe7e1;background:#fff}
+ .m{width:28px;height:28px;border-radius:7px;background:linear-gradient(135deg,#0b7a4b,#19b06e);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:800}
+ .brand{font-weight:600} .spacer{flex:1} .who{font-size:13px;color:var(--muted)} .who b{color:var(--ink)}
+ a.btn{font-size:13px;color:var(--brand);text-decoration:none;border:1px solid #cfe0d8;padding:6px 10px;border-radius:7px}
+ .wrap{max-width:720px;margin:0 auto;padding:22px 16px}
+ .ok{background:#e3f3ec;border:1px solid #bfe6d4;color:#0b7a4b;border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:14px}
+ .doc{display:flex;gap:12px;padding:14px;border:1px solid #e3ece8;border-radius:10px;margin-bottom:10px;background:#fff}
+ .ic{width:38px;height:38px;border-radius:9px;background:#e3f3ec;color:#0b7a4b;display:flex;align-items:center;justify-content:center;font-weight:700}
+ .t{font-weight:600} .d{font-size:13px;color:var(--muted)}
+</style></head><body>
+ <header><span class="m">V</span><span class="brand">KingVault</span><span class="spacer"></span>
+  <span class="who">Signed in as <b>{{ email }}</b></span> <a class="btn" href="/logout">Sign out</a></header>
+ <div class="wrap">
+  <div class="ok">✅ Signed in with a passkey. No password and no OTP were ever typed — so there was nothing for an AiTM proxy to capture and replay.</div>
+  <div class="doc"><div class="ic">📄</div><div><div class="t">Master recovery keys</div><div class="d">Vault item · last opened today</div></div></div>
+  <div class="doc"><div class="ic">💳</div><div><div class="t">Corporate card — treasury</div><div class="d">Vault item · restricted</div></div></div>
+  <div class="doc"><div class="ic">🔑</div><div><div class="t">Production SSH keys</div><div class="d">Vault item · restricted</div></div></div>
+ </div>
+</body></html>

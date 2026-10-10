@@ -24,6 +24,26 @@ services:
     ports: ["127.0.0.1:9000:8080"]
     networks: [kingnet-lab]
 
+  # ---- Phase 2: the DEFENSE demo. The same proxy, aimed at a passkey target, fails. ----
+  kingvault:                      # passkey-protected LAB target (phishing-resistant)
+    build: ./targets/kingvault
+    environment:
+      KINGVAULT_SECRET: "kingnet-lab-vault-secret-change-me"
+      KINGVAULT_RP_ID: "localhost"
+      KINGVAULT_ORIGIN: "http://localhost:8082"   # the real origin users reach directly
+    ports: ["127.0.0.1:8082:8080"]
+    networks: [kingnet-lab]
+
+  kingnet-proxy-vault:            # the SAME AiTM engine, pointed at KingVault — it will lose
+    build: ./proxy
+    environment:
+      TARGET_URL: "http://kingvault:8080"
+      PROXY_PUBLIC_URL: "http://localhost:8444"   # a different origin → passkey relay rejected
+      CONSOLE_URL: "http://attacker-console:8080"
+    ports: ["127.0.0.1:8444:8080"]
+    depends_on: [kingvault, attacker-console]
+    networks: [kingnet-lab]
+
 networks:
   kingnet-lab:
     driver: bridge

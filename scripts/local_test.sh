@@ -9,6 +9,7 @@
 #   3. victim submits the live TOTP    -> proxy captures + relays the 2FA code
 #   4. target issues the session cookie-> proxy steals it (and still logs the victim in)
 #   5. attacker console replays it      -> victim's inbox opens (no pw, no 2FA)
+#   6. KingMail detection               -> the replay is caught (new device / travel / reuse)
 #
 # Everything binds to 127.0.0.1 only and is torn down on exit. Lab-only.
 #
@@ -29,7 +30,11 @@ SECRET="kingnet-lab-test-secret"
 TOTP_SECRET="JBSWY3DPEHPK3PXP"          # the seeded lab victim's authenticator secret
 
 cleanup() {
-  for pf in "$TMP"/*.pid; do [ -f "$pf" ] && kill "$(cat "$pf")" 2>/dev/null || true; done
+  # Kill by exact host:port match — deterministic regardless of how the background
+  # subshell's PID resolved. Only ever matches this lab's own uvicorn instances.
+  for p in 8081 8443 9000; do
+    pkill -9 -f "uvicorn app:app --host 127.0.0.1 --port $p" 2>/dev/null || true
+  done
   rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -101,12 +106,18 @@ if [ "$DUMP" = 0 ]; then
   HIJACK="$(curl -fsS "$CONSOLE_URL/hijack/$TRACK")"
   echo "$HIJACK" | grep -q "victim@kingmail.lab" && pass "hijack opened the victim's inbox" || fail "hijack did not open the inbox"
   echo "$HIJACK" | grep -qi "Wire approval"      && pass "hijacked inbox content present"    || fail "hijacked inbox content missing"
+
+  say "Step 6 — DETECTION: the replay is caught even though 2FA passed"
+  SEC="$(curl -fsS "$KINGMAIL_URL/security")"
+  echo "$SEC" | grep -qi "new device"          && pass "flagged: new device"          || fail "new-device signal missing"
+  echo "$SEC" | grep -qi "impossible travel"   && pass "flagged: impossible travel"   || fail "impossible-travel signal missing"
+  echo "$SEC" | grep -qi "session token reuse" && pass "flagged: session token reuse" || fail "token-reuse signal missing"
 fi
 
 echo
 if [ "$DUMP" = 0 ]; then
-  printf '\033[1;32m==> ALL STAGES PASSED — KINGNET Phase 1 AiTM chain works end-to-end.\033[0m\n'
-  echo "   (credentials captured, 2FA relayed, session stolen, account taken over — all lab-only.)"
+  printf '\033[1;32m==> ALL STAGES PASSED — KINGNET AiTM attack chain + detection work end-to-end.\033[0m\n'
+  echo "   (creds captured, 2FA relayed, session stolen, account taken over — then the replay is detected. Lab-only.)"
   exit 0
 else
   printf '\033[1;31m==> FAILURES ABOVE. Service logs:\033[0m\n'
