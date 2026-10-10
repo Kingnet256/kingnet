@@ -1,6 +1,13 @@
 # KINGNET — Ops / Work Log
 _Newest on top. See DESIGN.md for the full plan._
 
+### 2026-10-10 — Phase 4 realism: terminal operator console, capture self-test, KingMail signup
+- **User feedback:** the build felt like toys; browser login via the lure "captured nothing"; wanted a real terminal phishing console (create links, see live sessions/cookies) + signup-able real apps. **Key constraint acknowledged:** I can't run Docker/a real browser here, so the browser→router capture path is the one thing I can't exercise — hence bugs that slip past my tests.
+- **Terminal operator console:** console `/api/captures` (full creds/otp/cookie per victim). `kingnet sessions` now prints the actual username/password/2FA/cookie + the hijack command; `kingnet sessions --follow` streams captures live (evilginx-style). **Verified** end-to-end via venv (drove a proxy login → `/api/captures` returned full data → `kingnet sessions` showed it + auto-completed mission/contract).
+- **`kingnet phish test <domain>`** — drives a victim login THROUGH the phishing proxy from inside the lab and confirms the console captured creds/otp/cookie. Lets the user tell a real capture bug from using the wrong URL (the likely cause of "nothing captured" — the real org URL vs the `login-…` phishing URL). `CONSOLE_PORT` is now env-overridable.
+- **KingMail signup (real multi-user):** `/register` creates an account + auto-signs-in; accounts without 2FA log in with password only; the seeded 2FA victim still relays OTP for the AiTM lesson; `/phone?email=` per-account. Verified signup/login/victim-2FA paths via venv. (In-memory per-run; SQLite persistence is a follow-up.)
+- **Still toward full realism (next):** KingBank signup, persistence, richer live C2 (per-victim detail/replay in-terminal), and reducing phishing-vs-real URL confusion in output.
+
 ### 2026-10-10 — Phase 4 UX: `kingnet play` (zero to a live campaign in one command)
 - **`kingnet play`** — runs the whole onboarding in sequence: Docker preflight → `up` (build+start console+router) → `hosts install` → provision a first KingMail org (acme-mail.kingnet.lab) → launch a phishing campaign → print a clear 3-step mission (open the phish link, sign in as the victim, `sessions` → hijack) with dashboard/story/help pointers. Idempotent-ish (skips steps already done). Verified full sequence via `--dry-run`.
 - Help reorganised with a **"Start here"** group (play / setup / install / doctor) first. README now leads with `./kingnet setup && ./kingnet play`.
