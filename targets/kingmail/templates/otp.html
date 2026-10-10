@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Verify it's you · KingMail</title>
+<style>
+ :root{--bg:#f1f3f6;--card:#fff;--brand:#1a73e8;--ink:#202124;--muted:#5f6368;--err:#d93025}
+ *{box-sizing:border-box} body{margin:0;font:15px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);display:flex;min-height:100vh;align-items:center;justify-content:center}
+ .card{background:var(--card);width:400px;max-width:94vw;border:1px solid #dadce0;border-radius:12px;padding:40px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+ .logo{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:600}
+ .logo .m{width:28px;height:28px;border-radius:7px;background:linear-gradient(135deg,#1a73e8,#4f9bff);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:800}
+ h1{font-size:21px;font-weight:500;margin:16px 0 4px} p.sub{color:var(--muted);margin:0 0 20px}
+ input{width:100%;padding:13px;border:1px solid #dadce0;border-radius:8px;font-size:20px;letter-spacing:7px;text-align:center}
+ input:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 2px rgba(26,115,232,.2)}
+ button{margin-top:22px;width:100%;background:var(--brand);color:#fff;border:0;border-radius:8px;padding:12px;font-size:15px;font-weight:600;cursor:pointer}
+ .err{background:#fce8e6;color:var(--err);border-radius:8px;padding:9px 12px;font-size:13px;margin-top:14px}
+ .hint{margin-top:16px;font-size:12px;color:var(--muted)}
+</style></head><body>
+ <form class="card" method="post" action="/otp">
+  <div class="logo"><span class="m">K</span> KingMail</div>
+  <h1>2-Step Verification</h1>
+  <p class="sub">Enter the 6-digit code from your authenticator app</p>
+  <input name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="••••••" required autofocus>
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  <button type="submit">Verify</button>
+  <div class="hint">Lab tip: open <b>/phone</b> on the real KingMail to read your current code.</div>
+ </form>
+</body></html>

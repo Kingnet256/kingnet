@@ -1,0 +1,21 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authenticator · KingMail (lab)</title>
+<meta http-equiv="refresh" content="{{ remaining }}">
+<style>
+ body{margin:0;font:15px -apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0b1020;color:#e7ebf5;display:flex;min-height:100vh;align-items:center;justify-content:center}
+ .phone{width:300px;background:#131a2e;border:1px solid #2a3350;border-radius:26px;padding:26px 22px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+ .t{color:#8ea0c8;font-size:13px;letter-spacing:.5px} .acct{margin:14px 0 6px;color:#aeb9d6;font-size:13px}
+ .code{font-size:46px;font-weight:800;letter-spacing:10px;color:#fff;margin:4px 0}
+ .bar{height:6px;background:#263055;border-radius:6px;overflow:hidden;margin-top:14px}
+ .fill{height:100%;background:linear-gradient(90deg,#4f9bff,#1a73e8);width:{{ (remaining/30*100)|int }}%}
+ .n{color:#6f7fa8;font-size:11px;margin-top:16px}
+</style></head><body>
+ <div class="phone">
+  <div class="t">🔐 Authenticator</div>
+  <div class="acct">{{ email }}</div>
+  <div class="code">{{ code }}</div>
+  <div class="bar"><div class="fill"></div></div>
+  <div class="n">Simulated 2FA app · refreshes in {{ remaining }}s · lab only</div>
+ </div>
+</body></html>

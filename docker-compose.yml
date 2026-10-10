@@ -1,0 +1,29 @@
+# KINGNET lab — one isolated network, bound to localhost only (never exposed to your LAN).
+name: kingnet
+services:
+  kingmail:                       # the realistic LAB target (not a real mail service)
+    build: ./targets/kingmail
+    environment: { KINGMAIL_SECRET: "kingnet-lab-secret-change-me" }
+    ports: ["127.0.0.1:8081:8080"]
+    networks: [kingnet-lab]
+
+  kingnet-proxy:                  # the AiTM engine (the "phishing link" the victim visits)
+    build: ./proxy
+    environment:
+      TARGET_URL: "http://kingmail:8080"
+      PROXY_PUBLIC_URL: "http://localhost:8443"
+      CONSOLE_URL: "http://attacker-console:8080"
+    ports: ["127.0.0.1:8443:8080"]
+    depends_on: [kingmail, attacker-console]
+    networks: [kingnet-lab]
+
+  attacker-console:               # what the attacker sees: captures + session hijack
+    build: ./console
+    environment: { KINGMAIL_URL: "http://kingmail:8080" }
+    volumes: ["./data:/app/data"]
+    ports: ["127.0.0.1:9000:8080"]
+    networks: [kingnet-lab]
+
+networks:
+  kingnet-lab:
+    driver: bridge

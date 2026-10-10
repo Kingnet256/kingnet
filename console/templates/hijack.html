@@ -1,0 +1,29 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Session hijack · KINGNET</title>
+<style>
+ body{margin:0;font:14px ui-monospace,Menlo,Consolas,monospace;background:#0a0e17;color:#c9d4e8}
+ .bar{padding:14px 20px;border-bottom:1px solid #1c2740;display:flex;gap:12px;align-items:center}
+ a{color:#7aa2ff} .ok{color:#38d39f;font-weight:700} .no{color:#ff5c7a;font-weight:700}
+ .wrap{max-width:980px;margin:0 auto;padding:20px 16px}
+ .note{background:#101726;border:1px solid #1c2740;border-radius:10px;padding:14px 16px;margin-bottom:16px}
+ .cookie{color:#ffd479;word-break:break-all}
+ .frame{border:2px solid #ff2e63;border-radius:12px;overflow:hidden;background:#fff}
+ .frame .cap{background:#ff2e63;color:#fff;padding:7px 12px;font-weight:700;font-size:12px}
+ iframe{width:100%;height:560px;border:0;background:#fff}
+</style></head><body>
+ <div class="bar"><a href="/">← console</a>
+   <span>Replaying stolen cookie against <b>{{ kingmail }}</b> for victim <b>{{ track }}</b></span></div>
+ <div class="wrap">
+  <div class="note">
+   {% if ok %}<span class="ok">✔ ACCOUNT TAKEOVER.</span> Using only the stolen cookie
+     <span class="cookie">{{ cookie.cookie_name }}={{ cookie.cookie_value }}</span>
+     — <b>no password, no 2FA</b> — we opened the victim's live mailbox below.
+   {% else %}<span class="no">✘ Could not replay</span> (cookie expired or victim hasn't finished signing in).{% endif %}
+  </div>
+  {% if ok %}
+   <div class="frame"><div class="cap">👁 VICTIM'S MAILBOX (opened with the stolen session)</div>
+    <iframe srcdoc="{{ inbox|e }}"></iframe></div>
+  {% endif %}
+ </div>
+</body></html>

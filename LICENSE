@@ -1,0 +1,12 @@
+KINGNET Educational License (lab-only)
+
+Copyright (c) 2026 Kingnet / Kasspar.
+
+KINGNET is provided SOLELY for cybersecurity EDUCATION and authorized, consented
+training inside an ISOLATED LAB. It ships with its own deliberately-built target
+services; it must NOT be modified, configured, or used to attack, proxy, phish, or
+intercept any system, account, service, or person you do not own or have explicit
+written authorization to test. The authors accept no liability for misuse.
+
+Permission is granted to use, copy, and modify this software for the above
+educational/lab purpose, provided this notice and the lab-only restriction are kept.
