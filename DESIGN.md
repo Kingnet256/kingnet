@@ -43,7 +43,7 @@ Nothing is faked or dumbed down — only the *targets* are contained.
 - **Phase 0:** this design + repo scaffold + README with the lab-only/educational framing + license.
 - **Phase 1 (MVP):** one full AiTM scenario end-to-end — `KingMail` login + OTP → KINGNET captures creds + session cookie → attacker console shows a working session hijack. `docker compose up` and it just works.
 - **Phase 2 — ✅ done:** the defense half — passkey-enabled target that resists KINGNET; detection signals (new device / impossible travel / token reuse); guided lessons.
-- **Phase 3 — in progress:** ✅ real browser WebAuthn for KingVault; ✅ OAuth consent-phishing scenario; ✅ KingBank scenario; ✅ cookie-theft variants (XSS + infostealer, with HttpOnly/encoding/device-bound-session defenses). Remaining: polish, publish lessons on kasspar.com.
+- **Phase 3 — in progress:** ✅ real browser WebAuthn for KingVault; ✅ OAuth consent-phishing scenario; ✅ KingBank scenario; ✅ cookie-theft variants (XSS + infostealer); ✅ lessons published as a static site, staged privately at lab.kasspar.com. **Phases 0–3 complete.**
 
 ## Guardrails (enforced in code, not just docs)
 - Target allowlist — proxy only serves the bundled lab services.
