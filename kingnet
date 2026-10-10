@@ -1105,39 +1105,47 @@ CONSOLE_CMDS = [
 ]
 
 
-_ART = r"""
-   ██╗  ██╗██╗███╗   ██╗ ██████╗ ███╗   ██╗███████╗████████╗
-   ██║ ██╔╝██║████╗  ██║██╔════╝ ████╗  ██║██╔════╝╚══██╔══╝
-   █████╔╝ ██║██╔██╗ ██║██║  ███╗██╔██╗ ██║█████╗     ██║
-   ██╔═██╗ ██║██║╚██╗██║██║   ██║██║╚██╗██║██╔══╝     ██║
-   ██║  ██╗██║██║ ╚████║╚██████╔╝██║ ╚████║███████╗   ██║
-   ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝   ╚═╝"""
+_WORDMARK = [
+    " _  _____ _  _  ___ _  _ ___ _____ ",
+    "| |/ /_ _| \\| |/ __| \\| | __|_   _|",
+    "| ' < | || .` | (_ | .` | _|  | |  ",
+    "|_|\\_\\___|_|\\_|\\___|_|\\_|___| |_|  ",
+]
 
 # readline-safe coloured prompt (\001/\002 mark non-printing bytes so the width is right)
 PROMPT = "\001\033[1;35m\002kingnet\001\033[0m\002 \001\033[1;36m\002❯\001\033[0m\002 "
 
-# The KINGNET crest — the Kingnet256 identicon, in tan, shown to the LEFT of the wordmark.
-_TAN = "\033[38;5;180m"
+# The KINGNET crest (scaled Kingnet256 identicon, in red) shown LEFT of the smaller wordmark.
+_RED = "\033[38;5;196m"
 _CREST = [
-    "  ██  ██  ",
-    "  ██████  ",
-    "    ██    ",
-    "██  ██  ██",
-    "  ██████  ",
+    '    ████    ████    ',
+    '    ████    ████    ',
+    '    ████████████    ',
+    '    ████████████    ',
+    '        ████        ',
+    '        ████        ',
+    '████    ████    ████',
+    '████    ████    ████',
+    '    ████████████    ',
+    '    ████████████    ',
 ]
 
 
 def _header():
-    art = [l for l in _ART.split("\n") if l.strip()]
-    n = len(art)
-    top = (n - len(_CREST)) // 2
-    crest = [""] * top + _CREST + [""] * (n - len(_CREST) - top)
-    tan = _TAN if C["0"] else ""
+    wm = _WORDMARK
+    crest = _CREST
+    n = max(len(crest), len(wm))
+    ct = (n - len(crest)) // 2
+    wt = (n - len(wm)) // 2
+    crest = [""] * ct + crest + [""] * (n - len(crest) - ct)
+    wm = [""] * wt + wm + [""] * (n - len(wm) - wt)
+    cw = max(len(r) for r in _CREST)
+    red = _RED if C["0"] else ""
     cyan = "\033[1;36m" if C["0"] else ""
     rst = "\033[0m" if C["0"] else ""
     out = []
     for i in range(n):
-        out.append("  " + tan + crest[i].ljust(10) + rst + "   " + cyan + art[i].lstrip() + rst)
+        out.append("  " + red + crest[i].ljust(cw) + rst + "   " + cyan + wm[i] + rst)
     return "\n".join(out)
 
 
