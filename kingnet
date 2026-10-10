@@ -431,7 +431,11 @@ def cmd_update(args):
         ok("Already on the latest version.")
     else:
         print("  " + out.replace("\n", "\n  "))
-        ok("Updated! " + col("Now exit and relaunch `kingnet`", "c") + " so the new version loads.")
+        ok("Updated to the latest version \u2014 relaunching the console\u2026")
+        try:
+            os.execv(sys.executable, [sys.executable, os.path.abspath(sys.argv[0]), "console"])
+        except Exception:
+            ok("Done. Relaunch `kingnet` to load the new version.")
 
 
 def cmd_setup(args):
