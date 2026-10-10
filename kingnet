@@ -1,0 +1,631 @@
+#!/usr/bin/env python3
+"""
+kingnet — the KINGNET control center.
+
+One command drives the whole lab world: a KingCoins economy, a marketplace where you buy
+lab domains and spin up target organisations (KingMail, KingBank, KingVault), guided
+phishing + session-hijack campaigns against them, missions that pay out coins, and help
+on every command. Everything runs LOCALLY on your machine (Docker); the targets are
+bundled lab services that can never reach a real system.
+
+Quick start:
+    git clone https://github.com/Kingnet256/kingnet && cd kingnet
+    ./kingnet up                 # build + start the base lab
+    ./kingnet tutorial           # a guided first campaign
+    ./kingnet help               # everything you can do
+
+Pure-stdlib (needs Python 3.9+). Targets need Docker. Lab-only.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+STATE_DIR = ROOT / ".kingnet"
+STATE_FILE = STATE_DIR / "world.json"
+NETWORK = "kingnet-lab"
+CONSOLE_NAME = "kn-console"
+CONSOLE_PORT = 9000
+START_COINS = 1000
+
+# ---- cosmetics -------------------------------------------------------------
+C = {"g": "\033[1;32m", "r": "\033[1;31m", "y": "\033[1;33m", "c": "\033[1;36m",
+     "b": "\033[1;34m", "m": "\033[1;35m", "d": "\033[2m", "0": "\033[0m", "B": "\033[1m"}
+if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
+    C = {k: "" for k in C}
+
+
+def col(s, c):
+    return f"{C[c]}{s}{C['0']}"
+
+
+def coin(n):
+    return col(f"{n:,} KC", "y")
+
+
+def say(s=""):
+    print(s)
+
+
+def ok(s):
+    print(col("✓ ", "g") + s)
+
+
+def warn(s):
+    print(col("! ", "y") + s)
+
+
+def err(s):
+    print(col("✗ ", "r") + s, file=sys.stderr)
+
+
+def banner():
+    say(col("  ⚡ KINGNET", "c") + col("  — lab-contained AiTM / phishing world", "d"))
+
+
+# ---- the catalog (marketplace) --------------------------------------------
+# Each target org reuses a bundled lab image and is reachable in-lab by the domain
+# you give it. `cookie` is the session cookie the AiTM proxy will steal; passkey targets
+# have none to steal (that's the lesson).
+ORGS = {
+    "kingmail": {"name": "KingMail", "blurb": "Webmail: password + TOTP login, real session cookie, OAuth consent.",
+                 "price": 200, "image": "kingnet/kingmail", "cookie": "kingmail_session",
+                 "login": "/login", "creds": "victim@kingmail.lab / Summer2026!"},
+    "kingbank": {"name": "KingBank", "blurb": "Online bank: login + a real balance you can drain with a stolen session.",
+                 "price": 350, "image": "kingnet/kingbank", "cookie": "kingbank_session",
+                 "login": "/login", "creds": "victim@kingbank.lab / Autumn2026!"},
+    "kingvault": {"name": "KingVault", "blurb": "Passkey (WebAuthn) portal — the defense demo the proxy CANNOT phish.",
+                  "price": 300, "image": "kingnet/kingvault", "cookie": None,
+                  "login": "/login", "creds": "victim@kingvault.lab (passkey)"},
+}
+DOMAIN_FEE = 50  # 'registering' a .kingnet.lab domain
+
+MISSIONS = {
+    "first-blood": ("Launch your first phishing campaign", 100),
+    "session-thief": ("Capture a session cookie through the proxy", 150),
+    "account-takeover": ("Hijack a victim's session (no password, no 2FA)", 200),
+    "bank-job": ("Drain a KingBank account with a stolen session", 300),
+    "defender": ("Stand up a KingVault passkey target (an attack-proof org)", 250),
+}
+
+
+# ---- world state -----------------------------------------------------------
+def default_state():
+    return {"coins": START_COINS, "ledger": [], "orgs": {}, "campaigns": {},
+            "missions": {}, "next_port": 8081, "next_pport": 8443, "created": time.time()}
+
+
+def load_state():
+    if STATE_FILE.exists():
+        try:
+            return json.loads(STATE_FILE.read_text())
+        except Exception:
+            warn("world state was corrupt; starting fresh")
+    return default_state()
+
+
+def save_state(s):
+    STATE_DIR.mkdir(exist_ok=True)
+    STATE_FILE.write_text(json.dumps(s, indent=2))
+
+
+def spend(s, amount, memo):
+    if s["coins"] < amount:
+        err(f"Not enough KingCoins: need {coin(amount)}, have {coin(s['coins'])}. "
+            f"Earn more — see {col('kingnet missions', 'c')}.")
+        return False
+    s["coins"] -= amount
+    s["ledger"].insert(0, {"ts": time.time(), "delta": -amount, "memo": memo})
+    return True
+
+
+def earn(s, amount, memo):
+    s["coins"] += amount
+    s["ledger"].insert(0, {"ts": time.time(), "delta": amount, "memo": memo})
+
+
+def complete_mission(s, key):
+    if key in MISSIONS and not s["missions"].get(key):
+        s["missions"][key] = time.time()
+        title, reward = MISSIONS[key]
+        earn(s, reward, f"mission: {title}")
+        print(col(f"\n🏅 Mission complete — {title}  +{reward} KC", "g"))
+
+
+# ---- docker helpers --------------------------------------------------------
+DRY = False
+
+
+def have_docker():
+    return shutil.which("docker") is not None
+
+
+def docker(*args, capture=False, check=True):
+    cmd = ["docker", *args]
+    if DRY:
+        say(col("  [dry-run] ", "d") + " ".join(cmd))
+        return ""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        if not check:
+            return ""
+        err("Docker is not installed or not on PATH. Run `kingnet doctor`.")
+        sys.exit(2)
+    if check and r.returncode != 0:
+        err(f"docker {args[0]} failed: {r.stderr.strip() or r.stdout.strip()}")
+        sys.exit(1)
+    return (r.stdout + r.stderr) if not capture else r.stdout
+
+
+def container_running(name):
+    if DRY or not have_docker():
+        return False
+    out = docker("ps", "--filter", f"name=^{name}$", "--format", "{{.Names}}", capture=True, check=False)
+    return name in out.split()
+
+
+def http(url, method="GET", data=None, timeout=8):
+    try:
+        req = urllib.request.Request(url, method=method,
+                                     data=json.dumps(data).encode() if data else None,
+                                     headers={"Content-Type": "application/json"} if data else {})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            body = r.read().decode("utf-8", "ignore")
+            try:
+                return r.status, json.loads(body)
+            except Exception:
+                return r.status, body
+    except Exception as e:
+        return None, str(e)
+
+
+# ---- commands --------------------------------------------------------------
+def cmd_doctor(args):
+    banner()
+    say("\nChecking prerequisites:")
+    pyok = sys.version_info >= (3, 9)
+    (ok if pyok else err)(f"Python {sys.version.split()[0]} " + ("(ok)" if pyok else "(need 3.9+)"))
+    d = have_docker()
+    (ok if d else err)("Docker " + ("found: " + docker("--version", capture=True, check=False).strip() if d else "NOT found — install Docker to run targets"))
+    if d:
+        up = docker("info", capture=True, check=False)
+        (ok if "Server Version" in up else warn)("Docker daemon " + ("running" if "Server Version" in up else "not reachable (is it started?)"))
+    ok(f"World state: {STATE_FILE}")
+    say(f"\nReady? Run {col('kingnet up', 'c')} then {col('kingnet tutorial', 'c')}.")
+
+
+def _build_images():
+    say("Building lab images (first run only, may take a few minutes)…")
+    docker("network", "create", NETWORK, check=False)
+    for slug, o in ORGS.items():
+        docker("build", "-q", "-t", o["image"], str(ROOT / "targets" / slug))
+        ok(f"image {o['image']}")
+    docker("build", "-q", "-t", "kingnet/proxy", str(ROOT / "proxy"))
+    docker("build", "-q", "-t", "kingnet/console", str(ROOT / "console"))
+    ok("images kingnet/proxy, kingnet/console")
+
+
+def cmd_up(args):
+    banner()
+    if not have_docker() and not DRY:
+        err("Docker is required. Run `kingnet doctor`.")
+        sys.exit(2)
+    _build_images()
+    if not container_running(CONSOLE_NAME):
+        (STATE_DIR / "console-data").mkdir(parents=True, exist_ok=True)
+        docker("run", "-d", "--name", CONSOLE_NAME, "--network", NETWORK,
+               "-p", f"127.0.0.1:{CONSOLE_PORT}:8080",
+               "-v", f"{STATE_DIR / 'console-data'}:/app/data", "kingnet/console")
+    ok(f"attacker console up → {col(f'http://localhost:{CONSOLE_PORT}/', 'b')}")
+    say(f"\nNext: {col('kingnet market', 'c')} to see what you can buy, "
+        f"or {col('kingnet tutorial', 'c')} for a guided run.")
+
+
+def cmd_down(args):
+    s = load_state()
+    names = [CONSOLE_NAME] + [o["container"] for o in s["orgs"].values()] + \
+            [c["container"] for c in s["campaigns"].values()]
+    for n in names:
+        docker("rm", "-f", n, check=False)
+    ok("stopped all KINGNET containers (your world state is kept — `kingnet status`).")
+
+
+def cmd_status(args):
+    s = load_state()
+    banner()
+    say(f"\n  Wallet: {coin(s['coins'])}    Orgs: {len(s['orgs'])}    "
+        f"Campaigns: {len([c for c in s['campaigns'].values() if c.get('running')])} running    "
+        f"Missions: {len(s['missions'])}/{len(MISSIONS)}")
+    say("\n  " + col("Target organisations", "B"))
+    if not s["orgs"]:
+        say(col("    (none yet — buy one with `kingnet buy kingmail --domain acme.kingnet.lab`)", "d"))
+    for dom, o in s["orgs"].items():
+        live = col("● live", "g") if container_running(o["container"]) else col("○ stopped", "d")
+        say(f"    {live}  {col(dom, 'c')}  [{o['type']}]  → http://localhost:{o['port']}{ORGS[o['type']]['login']}")
+    say("\n  " + col("Campaigns", "B"))
+    if not s["campaigns"]:
+        say(col("    (none — `kingnet phish start --target <domain>`)", "d"))
+    for cid, c in s["campaigns"].items():
+        live = col("● running", "g") if c.get("running") and container_running(c["container"]) else col("○ stopped", "d")
+        say(f"    {live}  {col(cid, 'm')}  phishing {c['target']}  → {col(c['phish_url'], 'b')}")
+
+
+def cmd_wallet(args):
+    s = load_state()
+    banner()
+    say(f"\n  Balance: {coin(s['coins'])}\n")
+    if not s["ledger"]:
+        say(col("  no transactions yet", "d"))
+    for e in s["ledger"][:12]:
+        sign = col(f"+{e['delta']}", "g") if e["delta"] > 0 else col(str(e["delta"]), "r")
+        say(f"  {sign:>18}  {e['memo']}")
+    say(f"\n  Earn more by completing {col('kingnet missions', 'c')}.")
+
+
+def cmd_market(args):
+    banner()
+    say(f"\n  {col('MARKETPLACE', 'B')}   (you have {coin(load_state()['coins'])})\n")
+    say("  " + col("Target organisations", "B") + col("  — buy one, give it a lab domain, and attack it", "d"))
+    for slug, o in ORGS.items():
+        say(f"    {col(slug, 'c'):<22} {coin(o['price'])}  {col('+ ' + str(DOMAIN_FEE) + ' domain', 'd')}")
+        say(f"      {col(o['name'], 'B')} — {o['blurb']}")
+    say("\n  Buy:  " + col("kingnet buy <org> --domain <name>.kingnet.lab", "c"))
+    say("  e.g.  " + col("kingnet buy kingmail --domain acme-mail.kingnet.lab", "d"))
+
+
+def _norm_domain(d):
+    d = d.strip().lower()
+    if not d.endswith(".kingnet.lab"):
+        d = d.split(".")[0] + ".kingnet.lab"
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,40}\.kingnet\.lab", d):
+        return None
+    return d
+
+
+def _env_for(slug, domain):
+    origin = f"http://localhost"  # overridden per-type below where it matters
+    if slug == "kingmail":
+        return ["-e", "KINGMAIL_SECRET=kingnet-world"]
+    if slug == "kingbank":
+        return ["-e", "KINGBANK_SECRET=kingnet-world"]
+    if slug == "kingvault":
+        return ["-e", "KINGVAULT_RP_ID=localhost"]  # origin set at provision time
+    return []
+
+
+def cmd_buy(args):
+    s = load_state()
+    slug = args.item
+    if slug not in ORGS:
+        err(f"Unknown item '{slug}'. See {col('kingnet market', 'c')}.")
+        return
+    if not args.domain:
+        err("Pick a lab domain: --domain <name>.kingnet.lab")
+        return
+    domain = _norm_domain(args.domain)
+    if not domain:
+        err("Invalid domain. Use letters/digits/hyphens, e.g. acme-mail.kingnet.lab")
+        return
+    if domain in s["orgs"]:
+        err(f"{domain} already exists in your world.")
+        return
+    o = ORGS[slug]
+    total = o["price"] + DOMAIN_FEE
+    if not spend(s, total, f"bought {o['name']} on {domain}"):
+        save_state(s)
+        return
+    port = s["next_port"]; s["next_port"] += 1
+    container = "kn-" + domain.replace(".", "-")
+    run = ["run", "-d", "--name", container, "--network", NETWORK,
+           "--network-alias", domain, "-p", f"127.0.0.1:{port}:8080"]
+    if slug == "kingvault":
+        run += ["-e", f"KINGVAULT_ORIGIN=http://localhost:{port}", "-e", "KINGVAULT_RP_ID=localhost"]
+    else:
+        run += _env_for(slug, domain)
+    run += [o["image"]]
+    docker(*run)
+    s["orgs"][domain] = {"type": slug, "container": container, "port": port, "bought": time.time()}
+    if slug == "kingvault":
+        complete_mission(s, "defender")
+    save_state(s)
+    ok(f"Provisioned {col(o['name'], 'B')} at {col(domain, 'c')}  → {col(f'http://localhost:{port}{o['login']}', 'b')}")
+    say(f"   Demo login: {o['creds']}")
+    say(f"   Spent {coin(total)}, balance now {coin(s['coins'])}.")
+    if slug != "kingvault":
+        say(f"\n   Attack it:  {col('kingnet phish start --target ' + domain, 'c')}")
+    else:
+        say(f"\n   This is the DEFENSE demo — point a phish at it and watch it fail.")
+
+
+def cmd_targets(args):
+    s = load_state()
+    if not s["orgs"]:
+        say(col("No target orgs yet. Buy one: kingnet buy kingmail --domain acme.kingnet.lab", "d"))
+        return
+    for dom, o in s["orgs"].items():
+        live = col("● live", "g") if container_running(o["container"]) else col("○ stopped", "d")
+        say(f"{live}  {col(dom, 'c')}  [{o['type']}]  http://localhost:{o['port']}{ORGS[o['type']]['login']}  ({ORGS[o['type']]['creds']})")
+
+
+def cmd_phish(args):
+    s = load_state()
+    if args.phish_cmd == "start":
+        dom = _norm_domain(args.target or "")
+        if not dom or dom not in s["orgs"]:
+            err("Unknown target. See `kingnet targets`.")
+            return
+        o = s["orgs"][dom]
+        otype = o["type"]
+        if otype == "kingvault":
+            warn("KingVault uses passkeys — a phishing proxy cannot steal its login. "
+                 "That's the point; run it and watch the relay get rejected.")
+        pport = s["next_pport"]; s["next_pport"] += 1
+        container = f"kn-phish-{dom.replace('.', '-')}-{pport}"
+        cookie = ORGS[otype]["cookie"] or "none"
+        docker("run", "-d", "--name", container, "--network", NETWORK,
+               "-e", f"TARGET_URL=http://{dom}:8080",
+               "-e", f"PROXY_PUBLIC_URL=http://localhost:{pport}",
+               "-e", f"CONSOLE_URL=http://{CONSOLE_NAME}:8080",
+               "-e", f"SESSION_COOKIE_NAME={cookie}",
+               "-p", f"127.0.0.1:{pport}:8080", "kingnet/proxy")
+        cid = f"camp-{pport}"
+        url = f"http://localhost:{pport}{ORGS[otype]['login']}"
+        s["campaigns"][cid] = {"target": dom, "container": container, "port": pport,
+                               "phish_url": url, "running": True, "started": time.time()}
+        complete_mission(s, "first-blood")
+        save_state(s)
+        ok(f"Campaign {col(cid, 'm')} live. Send your victim this phishing link:")
+        say(f"   {col(url, 'b')}")
+        say(f"   Watch captures:  {col('kingnet sessions', 'c')}   console: http://localhost:{CONSOLE_PORT}/")
+    elif args.phish_cmd == "stop":
+        c = s["campaigns"].get(args.id)
+        if not c:
+            err("No such campaign. See `kingnet status`.")
+            return
+        docker("rm", "-f", c["container"], check=False)
+        c["running"] = False
+        save_state(s)
+        ok(f"Stopped campaign {args.id}.")
+
+
+def cmd_sessions(args):
+    status, data = http(f"http://localhost:{CONSOLE_PORT}/stolen")
+    s = load_state()
+    sess = []
+    st2, dash = http(f"http://localhost:{CONSOLE_PORT}/")
+    # The console groups captures on its dashboard; we parse its JSON-ish /stolen plus a hint.
+    banner()
+    say("\n  Captured so far (from the attacker console):")
+    if status != 200:
+        warn(f"console not reachable on :{CONSOLE_PORT} — is `kingnet up` done and a campaign running?")
+        return
+    items = data.get("items", []) if isinstance(data, dict) else []
+    # creds/otp/cookies live on the dashboard; cookie theft drops live in /stolen
+    say(f"  drop-server exfils: {len(items)}")
+    for it in items[:8]:
+        say(f"    {col(it.get('src', '?'), 'y')}  {str(it.get('data'))[:80]}")
+    say(f"\n  Full live view: {col(f'http://localhost:{CONSOLE_PORT}/', 'b')} "
+        f"(credentials, 2FA codes, stolen cookies + one-click hijack)")
+    # best-effort mission detection
+    if "Summer2026!" in str(dash) or "kingbank_session" in str(dash) or "STOLEN" in str(dash):
+        complete_mission(s, "session-thief"); save_state(s)
+
+
+def cmd_hijack(args):
+    status, data = http(f"http://localhost:{CONSOLE_PORT}/hijack/{args.track}")
+    if status == 200 and isinstance(data, str) and ("Signed in as" in data or "Wire approval" in data):
+        ok("Session hijacked — opened the victim's account with no password and no 2FA.")
+        s = load_state(); complete_mission(s, "account-takeover"); save_state(s)
+    else:
+        warn("Could not hijack that track (need a captured session cookie). "
+             "Open the console to pick a victim: http://localhost:%d/" % CONSOLE_PORT)
+
+
+def cmd_defend(args):
+    s = load_state()
+    dom = _norm_domain(args.target or "")
+    if not dom or dom not in s["orgs"]:
+        err("Unknown target. See `kingnet targets`.")
+        return
+    o = s["orgs"][dom]; port = o["port"]; otype = o["type"]
+    base = f"http://localhost:{port}"
+    want = (args.state != "off")
+    if otype == "kingmail":
+        ep, payload = ("/admin/bind-policy", {"bind": want}) if args.control == "device-binding" \
+            else ("/admin/xss-safe", {"safe": want}) if args.control == "xss-safe" \
+            else ("/admin/consent-policy", {"block_unverified": want})
+    elif otype == "kingbank":
+        ep, payload = "/admin/policy", {"require_step_up": want}
+    else:
+        warn("KingVault is phishing-resistant by design — no toggle needed.")
+        return
+    st, resp = http(base + ep, method="POST", data=payload)
+    (ok if st == 200 else err)(f"{otype} {dom}: {args.control or 'policy'} → {'ON' if want else 'OFF'}  ({resp})")
+
+
+def cmd_missions(args):
+    s = load_state()
+    banner()
+    say("\n  MISSIONS  (earn KingCoins)\n")
+    for key, (title, reward) in MISSIONS.items():
+        done = key in s["missions"]
+        mark = col("✓", "g") if done else col("○", "d")
+        say(f"   {mark}  {title:<52} {col('+' + str(reward) + ' KC', 'y')}")
+    say(f"\n  Some complete automatically as you play; others: {col('kingnet mission claim <id>', 'c')}")
+    say("  ids: " + ", ".join(MISSIONS))
+
+
+def cmd_mission(args):
+    s = load_state()
+    if args.action == "claim":
+        if args.id not in MISSIONS:
+            err(f"Unknown mission '{args.id}'. See `kingnet missions`.")
+            return
+        if s["missions"].get(args.id):
+            warn("Already claimed.")
+            return
+        complete_mission(s, args.id)
+        save_state(s)
+
+
+def cmd_tutorial(args):
+    banner()
+    steps = [
+        ("1", "Start the lab", "kingnet up"),
+        ("2", "Buy a target org + a lab domain", "kingnet buy kingmail --domain acme-mail.kingnet.lab"),
+        ("3", "Launch a phishing campaign against it", "kingnet phish start --target acme-mail.kingnet.lab"),
+        ("4", "Open the phishing link and sign in as the victim", "(browser) → the link kingnet printed"),
+        ("5", "Watch what you captured", "kingnet sessions"),
+        ("6", "Take over the account with the stolen session", "open http://localhost:9000/ → Hijack"),
+        ("7", "See the defense: a passkey org that can't be phished", "kingnet buy kingvault --domain safe.kingnet.lab"),
+        ("8", "Check your coins + missions", "kingnet wallet   &&   kingnet missions"),
+    ]
+    say("\n  " + col("GUIDED FIRST CAMPAIGN", "B") + "\n")
+    for n, what, how in steps:
+        say(f"   {col(n, 'c')}  {what}")
+        say(f"      {col(how, 'd')}")
+    say(f"\n  Everything has help: {col('kingnet help <command>', 'c')}  or  {col('kingnet <command> --help', 'c')}")
+
+
+def cmd_reset(args):
+    s = load_state()
+    if not args.yes:
+        warn("This removes all your orgs/campaigns/containers and resets coins. "
+             "Re-run with --yes to confirm.")
+        return
+    cmd_down(args)
+    if STATE_FILE.exists():
+        STATE_FILE.unlink()
+    ok("World reset. You start fresh with %s." % coin(START_COINS))
+
+
+# ---- help & parser ---------------------------------------------------------
+TOPICS = {
+    "overview": "KINGNET is a self-contained cyber range. Buy lab domains + target orgs with\n"
+                "KingCoins, phish them, steal sessions, take over accounts — then learn the\n"
+                "defenses (passkeys, detection, step-up). Everything runs locally in Docker and\n"
+                "can never reach a real system.",
+    "economy": "You start with %d KingCoins. Buying an org costs its price + a %d domain fee.\n"
+               "Earn coins by completing missions (`kingnet missions`)." % (START_COINS, DOMAIN_FEE),
+    "flow": "Typical loop:\n  kingnet up\n  kingnet buy kingmail --domain acme.kingnet.lab\n"
+            "  kingnet phish start --target acme.kingnet.lab\n  (open the phish link, sign in)\n"
+            "  kingnet sessions   → then hijack from the console\n  kingnet defend acme.kingnet.lab --step-up on",
+}
+
+
+def build_parser():
+    p = argparse.ArgumentParser(
+        prog="kingnet", add_help=True,
+        description="KINGNET — lab-contained AiTM/phishing world (local, Docker, lab-only).",
+        epilog="Run `kingnet help` for topics, or `kingnet <command> --help` for any command.")
+    p.add_argument("--dry-run", action="store_true", help="print the docker commands instead of running them")
+    sub = p.add_subparsers(dest="cmd")
+
+    def add(name, fn, help_):
+        sp = sub.add_parser(name, help=help_, description=help_)
+        sp.set_defaults(func=fn)
+        return sp
+
+    add("doctor", cmd_doctor, "check prerequisites (Python, Docker)")
+    add("up", cmd_up, "build images + start the base lab (attacker console)")
+    add("down", cmd_down, "stop all KINGNET containers (keeps your world state)")
+    add("status", cmd_status, "show wallet, orgs and campaigns at a glance")
+    add("wallet", cmd_wallet, "show your KingCoins balance and recent transactions")
+    add("market", cmd_market, "browse the marketplace of target orgs you can buy")
+
+    b = add("buy", cmd_buy, "buy a target org and give it a lab domain")
+    b.add_argument("item", help="what to buy (kingmail | kingbank | kingvault)")
+    b.add_argument("--domain", help="the lab domain to host it on, e.g. acme-mail.kingnet.lab")
+
+    add("targets", cmd_targets, "list the target orgs you own")
+
+    ph = add("phish", cmd_phish, "run a phishing (AiTM) campaign against a target")
+    phs = ph.add_subparsers(dest="phish_cmd")
+    pst = phs.add_parser("start", help="start a campaign against --target <domain>")
+    pst.add_argument("--target", help="a domain you own (see `kingnet targets`)")
+    pstp = phs.add_parser("stop", help="stop a running campaign by id")
+    pstp.add_argument("id", help="campaign id (see `kingnet status`)")
+
+    add("sessions", cmd_sessions, "show what your campaigns have captured")
+
+    hj = add("hijack", cmd_hijack, "replay a stolen session to take over an account")
+    hj.add_argument("track", help="the victim track id (from the console)")
+
+    df = add("defend", cmd_defend, "turn on a defense for one of your orgs")
+    df.add_argument("target", help="a domain you own")
+    df.add_argument("--control", choices=["step-up", "device-binding", "xss-safe", "consent-policy"],
+                    help="which defense (depends on org type)")
+    df.add_argument("state", nargs="?", default="on", choices=["on", "off"], help="on (default) or off")
+
+    add("missions", cmd_missions, "list missions and their KingCoin rewards")
+    mi = add("mission", cmd_mission, "claim a mission reward")
+    mi.add_argument("action", choices=["claim"])
+    mi.add_argument("id", help="mission id (see `kingnet missions`)")
+
+    add("tutorial", cmd_tutorial, "a guided first campaign, step by step")
+    rs = add("reset", cmd_reset, "wipe your world and start over")
+    rs.add_argument("--yes", action="store_true", help="confirm the reset")
+
+    hp = add("help", cmd_help, "help on commands and topics")
+    hp.add_argument("topic", nargs="?", help="a command name or topic (overview, economy, flow)")
+    return p
+
+
+def cmd_help(args):
+    topic = getattr(args, "topic", None)
+    parser = build_parser()
+    if not topic:
+        banner()
+        say("\n  " + col("COMMANDS", "B"))
+        groups = [("Set up", ["doctor", "up", "down", "status"]),
+                  ("Economy", ["wallet", "market", "buy", "missions", "mission"]),
+                  ("Attack", ["targets", "phish", "sessions", "hijack"]),
+                  ("Defend / learn", ["defend", "tutorial"]),
+                  ("Admin", ["reset", "help"])]
+        acts = {a.dest: a for a in parser._subparsers._group_actions} if False else None
+        # pull help strings from the subparser choices
+        choices = parser._subparsers._group_actions[0].choices
+        for gname, cmds in groups:
+            say("\n  " + col(gname, "c"))
+            for c in cmds:
+                h = choices[c].description or ""
+                say(f"    {c:<10} {col(h, 'd')}")
+        say("\n  Topics: " + ", ".join(TOPICS) + f"   →  {col('kingnet help <topic>', 'c')}")
+        say(f"  Detail: {col('kingnet <command> --help', 'c')}")
+        return
+    if topic in TOPICS:
+        banner(); say("\n  " + col(topic.upper(), "B") + "\n\n  " + TOPICS[topic].replace("\n", "\n  "))
+        return
+    choices = parser._subparsers._group_actions[0].choices
+    if topic in choices:
+        choices[topic].print_help()
+        return
+    err(f"No help for '{topic}'. Try `kingnet help` or a topic: {', '.join(TOPICS)}.")
+
+
+def main(argv=None):
+    global DRY
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    DRY = getattr(args, "dry_run", False)
+    if not getattr(args, "cmd", None):
+        cmd_help(argparse.Namespace(topic=None))
+        return
+    args.func(args)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        say("\naborted.")

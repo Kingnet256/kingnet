@@ -59,7 +59,37 @@ mailbox, so the lesson sticks — and then shows why passkeys/FIDO2 make the sam
 | `scripts/cookie_theft_test.sh` | Docker-free proof of the cookie-theft variants: stored XSS (HttpOnly + encoding defend) and an infostealer (device-bound sessions defend). Needs `node`. |
 | `lessons/` | Guided walkthroughs (attack → detection → passkeys → consent phishing), also the basis for the kasspar.com write-ups. |
 
-## Quick start
+## Get started in one command — the `kingnet` world
+
+Clone the whole lab and drive it from a single command. You get a **KingCoins** wallet,
+a marketplace to **buy lab domains and spin up target organisations**, **phishing campaigns**
+you launch against them, and **missions** that pay out coins — all local, all lab-only.
+
+```bash
+git clone https://github.com/Kingnet256/kingnet && cd kingnet
+./kingnet up                 # build images + start the base lab (needs Docker)
+./kingnet tutorial           # a guided first campaign
+```
+
+The core loop:
+
+```bash
+./kingnet market                                        # what you can buy (you start with 1,000 KC)
+./kingnet buy kingmail --domain acme-mail.kingnet.lab   # provision a target org on a lab domain
+./kingnet phish start --target acme-mail.kingnet.lab    # launch an AiTM campaign → prints the phishing link
+./kingnet sessions                                      # what you captured (creds, 2FA, session cookie)
+./kingnet hijack <track>                                # take over the account — no password, no 2FA
+./kingnet buy kingvault --domain safe.kingnet.lab       # the passkey org the SAME attack can't phish
+./kingnet defend acme-mail.kingnet.lab --control device-binding on   # turn on a defense
+./kingnet wallet   &&   ./kingnet missions              # coins + objectives
+```
+
+**Help on everything:** `./kingnet help`, `./kingnet help <topic>` (overview, economy, flow),
+or `./kingnet <command> --help`. `./kingnet doctor` checks your prerequisites. Everything
+runs in Docker on your machine; the targets are bundled lab services that can never reach a
+real system.
+
+## Quick start (classic) — raw Docker Compose
 
 ### Option A — Docker (recommended, fully isolated)
 
