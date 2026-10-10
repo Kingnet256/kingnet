@@ -1,0 +1,19 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Verify · KingBank</title>
+<style>
+ :root{--brand:#0a3d62;--ink:#10202e;--muted:#5a6b7a}
+ *{box-sizing:border-box} body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font:15px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:#eef3f7}
+ .card{width:360px;max-width:92vw;background:#fff;border:1px solid #d7e2ec;border-radius:14px;padding:26px 24px;box-shadow:0 8px 30px rgba(10,61,98,.1)}
+ h1{font-size:19px;margin:0 0 2px} .sub{color:var(--muted);font-size:13px;margin-bottom:18px}
+ input{width:100%;padding:10px 12px;border:1px solid #cdd9e3;border-radius:9px;font-size:18px;letter-spacing:4px;text-align:center;margin:5px 0 14px}
+ button{width:100%;padding:11px;border:0;border-radius:9px;background:var(--brand);color:#fff;font-weight:600;font-size:15px;cursor:pointer}
+ .err{background:#fdecea;border:1px solid #f5a79e;color:#b1281b;border-radius:9px;padding:9px 11px;font-size:13px;margin-bottom:12px}
+ .hint{font-size:12px;color:var(--muted);margin-top:12px}
+</style></head><body>
+ <div class="card">
+  <h1>Two-factor verification</h1><div class="sub">Enter the 6-digit code from your authenticator.</div>
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  <form method="post" action="/otp"><input name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="••••••"><button type="submit">Verify</button></form>
+  <div class="hint">Lab: your code is shown at <a href="/phone">/phone</a>.</div>
+ </div>
+</body></html>

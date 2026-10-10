@@ -1,6 +1,13 @@
 # KINGNET — Ops / Work Log
 _Newest on top. See DESIGN.md for the full plan._
 
+### 2026-10-10 — Phase 3 item 3: KingBank AiTM scenario ✅
+- **`targets/kingbank/`** — a lab online bank: password+TOTP login, signed `kingbank_session`, a real balance (R75,000), payees, and `/pay` transfers that actually move money. Templates (login/otp/dashboard/security) + Dockerfile + requirements. Reuses the fingerprint-detection idea for fraud alerts; `/admin/policy` toggles a per-transaction step-up defense; `/phone` shows the code.
+- **Proxy:** `SESSION_COOKIE_NAME` is now env-configurable (default `kingmail_session`) — a generic config, not scenario logic — so the same proxy steals `kingbank_session`. Cred/OTP capture already matched KingBank's field names.
+- **Attack path:** victim phished through the proxy → console captures password + OTP + session cookie → attacker replays the stolen cookie from a new device and `POST /pay` drains the account (to this bank, the session *is* authority). **Defenses:** detection flags new device / impossible travel / new payee on `/security`; step-up policy makes the stolen session alone unable to pay (HTTP 401).
+- **Test:** `scripts/bank_test.sh` + `_bank_flow.py` — full phish → drain (R75,000→R15,000) → detection → step-up-blocks-retry. **PASS.** `local_test.sh` still PASS (proxy default cookie name unchanged). Docker compose adds `kingbank` (8083) + `kingnet-proxy-bank` (8446). Lesson `07-banking-aitm.md` added. README/DESIGN updated.
+- **Status:** Phase 3 items 1–3 done (browser WebAuthn, OAuth consent phishing, KingBank). Remaining: cookie-theft variants, publish lessons on kasspar.com (awaiting explicit go — outward-facing). To be committed + pushed.
+
 ### 2026-10-10 — Phase 3 item 2: OAuth consent-phishing scenario ✅
 - **New attack class, no creds phished.** KingMail now doubles as an **OAuth2 identity + resource server**: `/oauth/authorize` (consent screen), `/oauth/token`, `/api/messages` (Bearer, scope `mail.read`), `/oauth/grants` (+ revoke), `/admin/consent-policy`. Added `consent.html` + `grants.html`. In-memory clients/codes/tokens/grants; `JSONResponse` import added.
 - **Attacker app `oauth-app/` ("Mail Backup Pro")** — lures the victim to KingMail's REAL consent screen, and on *Allow* swaps the code for a token and reads the mailbox. Never sees a password/OTP. Templates (lure + loot console), Dockerfile, requirements. Browser-facing vs server-to-server KingMail URLs split (`KINGMAIL_PUBLIC` / `KINGMAIL_INTERNAL`) so it works under Docker too.

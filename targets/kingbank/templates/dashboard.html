@@ -1,0 +1,46 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Accounts · KingBank</title>
+<style>
+ :root{--brand:#0a3d62;--ink:#10202e;--muted:#5a6b7a;--good:#0b7a4b}
+ *{box-sizing:border-box} body{margin:0;font:15px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:#eef3f7}
+ header{display:flex;align-items:center;gap:12px;padding:12px 20px;background:#0a3d62;color:#fff}
+ .m{width:28px;height:28px;border-radius:7px;background:#1b6ca8;display:inline-flex;align-items:center;justify-content:center;font-weight:800}
+ .spacer{flex:1} header a{color:#cfe0ee;font-size:13px;text-decoration:none;margin-left:14px}
+ .wrap{max-width:760px;margin:0 auto;padding:22px 16px}
+ .bal{background:#fff;border:1px solid #d7e2ec;border-radius:12px;padding:18px 20px;margin-bottom:16px}
+ .bal .n{font-size:13px;color:var(--muted)} .bal .v{font-size:30px;font-weight:800;color:#0a3d62}
+ .msg{background:#e3f3ec;border:1px solid #bfe6d4;color:var(--good);border-radius:9px;padding:10px 12px;margin-bottom:14px}
+ .err{background:#fdecea;border:1px solid #f5a79e;color:#b1281b;border-radius:9px;padding:10px 12px;margin-bottom:14px}
+ .card{background:#fff;border:1px solid #d7e2ec;border-radius:12px;padding:16px 18px;margin-bottom:16px}
+ h3{margin:0 0 10px;font-size:15px} label{font-size:13px;color:var(--muted)}
+ select,input{width:100%;padding:9px 11px;border:1px solid #cdd9e3;border-radius:9px;font-size:15px;margin:4px 0 12px}
+ button{padding:10px 16px;border:0;border-radius:9px;background:var(--brand);color:#fff;font-weight:600;cursor:pointer}
+ .tx{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #eef2f6;font-size:14px}
+ .tx .amt{font-weight:700;color:#b1281b}
+</style></head><body>
+ <header><span class="m">🏦</span><b>KingBank</b><span class="spacer"></span>
+   <span style="font-size:13px">{{ name }} · {{ account }}</span>
+   <a href="/security">Security</a><a href="/login">Sign out</a></header>
+ <div class="wrap">
+  {% if msg %}<div class="msg">✅ {{ msg }}</div>{% endif %}
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  <div class="bal"><div class="n">Available balance · {{ account }}</div><div class="v">R {{ '%.2f'|format(balance) }}</div></div>
+
+  <div class="card"><h3>Make a payment</h3>
+   <form method="post" action="/pay">
+    <label>Pay to</label>
+    <select name="payee">
+     {% for acct, nm in payees.items() %}<option value="{{ acct }}">{{ nm }} ({{ acct }})</option>{% endfor %}
+    </select>
+    <label>Amount (R)</label><input name="amount" inputmode="decimal" placeholder="0.00">
+    <button type="submit">Send payment</button>
+   </form>
+  </div>
+
+  <div class="card"><h3>Recent transactions</h3>
+   {% for t in history %}
+    <div class="tx"><span>{{ t.name }} ({{ t.to }})</span><span class="amt">− R {{ '%.2f'|format(t.amount) }}</span></div>
+   {% endfor %}
+  </div>
+ </div>
+</body></html>

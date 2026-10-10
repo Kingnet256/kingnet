@@ -30,7 +30,7 @@ TARGET_URL = os.environ.get("TARGET_URL", "http://localhost:8081").rstrip("/")
 PROXY_PUBLIC_URL = os.environ.get("PROXY_PUBLIC_URL", "http://localhost:8443").rstrip("/")
 CONSOLE_URL = os.environ.get("CONSOLE_URL", "http://localhost:9000").rstrip("/")
 TRACK_COOKIE = "kn_track"
-SESSION_COOKIE_NAME = "kingmail_session"
+SESSION_COOKIE_NAME = os.environ.get("SESSION_COOKIE_NAME", "kingmail_session")
 HOP_BY_HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
               "te", "trailers", "transfer-encoding", "upgrade", "content-length", "content-encoding"}
 

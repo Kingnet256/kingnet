@@ -1,0 +1,29 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Security · KingBank</title>
+<style>
+ :root{--ink:#10202e;--muted:#5a6b7a}
+ *{box-sizing:border-box} body{margin:0;font:15px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:#fff}
+ header{display:flex;align-items:center;gap:12px;padding:12px 20px;background:#0a3d62;color:#fff}
+ .spacer{flex:1} header a{color:#cfe0ee;font-size:13px;text-decoration:none}
+ .wrap{max-width:720px;margin:0 auto;padding:22px 16px}
+ h1{font-size:20px;margin:0 0 4px} .sub{color:var(--muted);margin-bottom:18px}
+ .none{color:var(--muted);padding:30px 0;text-align:center}
+ .alert{border:1px solid #f5a79e;background:#fdecea;border-radius:10px;padding:14px;margin-bottom:12px}
+ .alert h3{margin:0 0 6px;color:#b1281b;font-size:15px}
+ .tag{display:inline-block;background:#b1281b;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:2px 9px;margin:2px 6px 2px 0}
+ .kv{font-size:13px;color:#3c4043}
+</style></head><body>
+ <header><b>🏦 KingBank</b><span class="spacer"></span><a href="/dashboard">Back</a></header>
+ <div class="wrap">
+  <h1>Security activity</h1>
+  <div class="sub">Logins and payments that look unusual. A fraudulent transfer from a stolen session shows up here as a new device / location / payee.</div>
+  {% if not alerts %}<div class="none">No anomalies yet.</div>{% endif %}
+  {% for a in alerts %}
+   <div class="alert"><h3>⚠️ {{ a.email }}</h3>
+    <div>{% for kind, detail in a.anomalies %}<span class="tag">{{ kind }}</span>{% endfor %}</div>
+    <div class="kv" style="margin-top:8px">{% for kind, detail in a.anomalies %}<div><b>{{ kind }}:</b> {{ detail }}</div>{% endfor %}
+     <div style="margin-top:6px"><b>From:</b> {{ a.fp.ua }} · {{ a.fp.geo }} · {{ a.fp.ip }}</div></div>
+   </div>
+  {% endfor %}
+ </div>
+</body></html>

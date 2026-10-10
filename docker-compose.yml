@@ -47,6 +47,24 @@ services:
     depends_on: [kingvault, attacker-console]
     networks: [kingnet-lab]
 
+  # ---- Phase 3: KingBank AiTM scenario (account takeover -> money moved). ----
+  kingbank:                       # LAB online bank target (not a real bank)
+    build: ./targets/kingbank
+    environment: { KINGBANK_SECRET: "kingnet-lab-bank-secret-change-me" }
+    ports: ["127.0.0.1:8083:8080"]
+    networks: [kingnet-lab]
+
+  kingnet-proxy-bank:             # the AiTM engine aimed at the bank (steals kingbank_session)
+    build: ./proxy
+    environment:
+      TARGET_URL: "http://kingbank:8080"
+      PROXY_PUBLIC_URL: "http://localhost:8446"
+      CONSOLE_URL: "http://attacker-console:8080"
+      SESSION_COOKIE_NAME: "kingbank_session"
+    ports: ["127.0.0.1:8446:8080"]
+    depends_on: [kingbank, attacker-console]
+    networks: [kingnet-lab]
+
   # ---- Phase 3: OAuth consent-phishing scenario. The attacker's own app. ----
   mail-backup-pro:                # the malicious OAuth app — never sees a password
     build: ./oauth-app
