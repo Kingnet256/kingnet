@@ -474,7 +474,19 @@ def cmd_up(args):
     ok(f"attacker console up → {col(f'http://localhost:{CONSOLE_PORT}/', 'b')} "
        f"(also {col(web_url(CONSOLE_DOMAIN), 'b')})")
     ok(f"lab router up → serves every *.kingnet.lab domain on port {HTTP_PORT}")
-    say(f"\nMap the lab domains into your browser once:  {col('kingnet hosts install', 'c')}  (uses sudo)")
+    # resume orgs/campaigns from a previous session that are stopped (e.g. after a reboot)
+    s = load_state()
+    to_resume = [o["container"] for o in s["orgs"].values()]
+    to_resume += [c["container"] for c in s["campaigns"].values() if c.get("running")]
+    resumed = 0
+    for name in to_resume:
+        if not container_running(name):
+            docker("start", name, check=False)
+            if container_running(name):
+                resumed += 1
+    if resumed:
+        ok(f"resumed {resumed} of your saved org/campaign container(s)")
+    say(f"\nMap the lab domains into your browser once:  {col(PROG + ' hosts install', 'c')}  (uses sudo)")
     say(f"Then: {col('kingnet market', 'c')} to see what you can buy, "
         f"or {col('kingnet tutorial', 'c')} for a guided run.")
 
@@ -864,20 +876,21 @@ def cmd_sessions(args):
         say(f"\n  No captures yet. Open the phishing link and sign in as the victim, then re-run.")
         say(f"  Live feed:  {col(PROG + ' sessions --follow', 'c')}   ·   self-test:  {col(PROG + ' phish test <domain>', 'c')}")
         return
-    say(col("\n  CAPTURED VICTIMS", "B") + f"  ({len(caps)})\n")
+    say(col("\n  ╭─ CAPTURED VICTIMS ", "b") + col(f"({len(caps)}) ", "d") + col("─" * 40, "b"))
+    bar = col("  │ ", "b")
     for c in caps:
-        head = col(c["track"], "m")
-        print(f"  ● {head}")
+        print(bar + col("● " + c["track"], "m"))
         if c.get("username"):
-            print(f"      creds    {col(c['username'] + ' / ' + str(c.get('password', '')), 'y')}")
+            print(bar + "    " + col("creds   ", "d") + col(c['username'] + ' / ' + str(c.get('password', '')), "y"))
         if c.get("otp"):
-            print(f"      2FA      {col(c['otp'], 'y')}  (relayed live)")
+            print(bar + "    " + col("2FA     ", "d") + col(c['otp'], "y") + col("  (relayed live)", "d"))
         if c.get("cookie"):
             ck = c["cookie"]
-            print(f"      cookie   {col(ck.get('cookie_name', '') + '=' + str(ck.get('cookie_value', ''))[:50] + '…', 'g')}")
-            print(f"      takeover {col(PROG + ' hijack ' + c['track'], 'c')}")
+            print(bar + "    " + col("cookie  ", "d") + col(ck.get('cookie_name', '') + '=' + str(ck.get('cookie_value', ''))[:48] + '…', "g"))
+            print(bar + "    " + col("takeover", "d") + " " + col(PROG + ' hijack ' + c['track'], "c"))
         if c.get("webauthn"):
-            print(f"      passkey  {col('REJECTED', 'r')} — bound to {c['webauthn'].get('bound_origin')} (phishing-resistant)")
+            print(bar + "    " + col("passkey ", "d") + col("REJECTED", "r") + col(f" — bound to {c['webauthn'].get('bound_origin')} (phishing-resistant)", "d"))
+    print(col("  ╰" + "─" * 60, "b"))
     s = load_state()
     if any(c.get("cookie") for c in caps):
         complete_mission(s, "session-thief")
@@ -1052,6 +1065,8 @@ def _ns(**kw):
 
 
 CONSOLE_CMDS = [
+    ("up", "start / resume the lab (console + router + your orgs)"),
+    ("play", "quick start: lab + a target org + a live phishing campaign"),
     ("sessions", "captured sessions — creds / 2FA / cookies.   `sessions follow` = live feed"),
     ("lures", "phishing links.   `lures` · `lures create <org>` · `lures stop <id>` · `lures test <org>`"),
     ("hijack", "take over a captured session.   `hijack <track>`"),
@@ -1071,8 +1086,43 @@ CONSOLE_CMDS = [
 ]
 
 
+_ART = r"""
+   ██╗  ██╗██╗███╗   ██╗ ██████╗ ███╗   ██╗███████╗████████╗
+   ██║ ██╔╝██║████╗  ██║██╔════╝ ████╗  ██║██╔════╝╚══██╔══╝
+   █████╔╝ ██║██╔██╗ ██║██║  ███╗██╔██╗ ██║█████╗     ██║
+   ██╔═██╗ ██║██║╚██╗██║██║   ██║██║╚██╗██║██╔══╝     ██║
+   ██║  ██╗██║██║ ╚████║╚██████╔╝██║ ╚████║███████╗   ██║
+   ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝   ╚═╝"""
+
+# readline-safe coloured prompt (\001/\002 mark non-printing bytes so the width is right)
+PROMPT = "\001\033[1;35m\002kingnet\001\033[0m\002 \001\033[1;36m\002❯\001\033[0m\002 "
+
+
+def _rule(w=62):
+    return col("  " + "─" * w, "line") if "line" in C else "  " + "─" * w
+
+
+def _console_banner(s, sm):
+    out = [col(_ART, "c"),
+           col("   adversary-in-the-middle · phishing operator console · LAB ONLY", "d"), ""]
+    lab = col("● LAB LIVE", "g") if sm else col("● LAB OFFLINE", "r") + col("  — type ", "d") + col("up", "c")
+    nlures = len([c for c in s["campaigns"].values() if c.get("running")])
+    loot = (f"{col(sm['cookies'], 'g')}🍪  {col(sm['credentials'], 'y')}🔑  "
+            f"{col(sm.get('webauthn_rejected', 0), 'r')}🛡" if sm else col("—", "d"))
+    bar = col("  ╭" + "─" * 60, "b")
+    end = col("  ╰" + "─" * 60, "b")
+    B = col("  │ ", "b")
+    out += [bar,
+            B + f"{lab}     level {col(level_of(s.get('xp', 0)), 'm')}     {coin(s['coins'])}",
+            B + f"orgs {col(len(s['orgs']), 'c')}   ·   lures {col(nlures, 'c')}   ·   loot {loot}",
+            B + col("help", "c") + col(" · ", "d") + col("sessions follow", "c")
+              + col(" (live feed) · ", "d") + col("lures", "c") + col(" · ", "d") + col("exit", "c"),
+            end, ""]
+    return "\n".join(out)
+
+
 class KingnetConsole(_cmdmod.Cmd):
-    prompt = col("kingnet » ", "m")
+    prompt = PROMPT
 
     def emptyline(self):
         pass
@@ -1081,10 +1131,24 @@ class KingnetConsole(_cmdmod.Cmd):
         err(f"unknown command: {line.split()[0] if line.split() else ''}. type `help`.")
 
     def do_help(self, arg):
-        print(col("\n  KINGNET OPERATOR CONSOLE — commands\n", "B"))
+        print(col("\n  ╭─ KINGNET — commands " + "─" * 39, "b"))
         for name, desc in CONSOLE_CMDS:
-            print(f"    {col(name, 'c'):<22} {col(desc, 'd')}")
-        print()
+            print(col("  │ ", "b") + f"{col(name, 'c'):<22} {col(desc, 'd')}")
+        print(col("  ╰" + "─" * 60, "b") + "\n")
+
+    def do_up(self, a):
+        cmd_up(_ns())
+
+    def do_play(self, a):
+        cmd_play(_ns())
+
+    def do_down(self, a):
+        cmd_down(_ns())
+
+    def do_banner(self, a):
+        print(_console_banner(load_state(), _console_summary()))
+
+    do_logo = do_banner
 
     # --- live ops ---------------------------------------------------------
     def do_sessions(self, a):
@@ -1174,28 +1238,29 @@ def _list_lures():
     s = load_state()
     live = [c for c in s["campaigns"].values() if c.get("running")]
     if not live:
-        say(col("  no active lures. create one:  lures create <org-domain>", "d"))
+        say(col("\n  no active lures.", "d") + "  create one:  " + col("lures create <org-domain>", "c") + "\n")
         return
-    say(col("\n  ACTIVE LURES (phishing links)\n", "B"))
+    say(col("\n  ╭─ ACTIVE LURES ", "b") + col(f"({len(live)}) ", "d") + col("─" * 44, "b"))
     for cid, c in s["campaigns"].items():
         if not c.get("running"):
             continue
-        say(f"    {col(cid, 'm')}   {col(c['phish_url'], 'r')}")
-        say(f"           → relays the real {col(c['target'], 'c')}   (stop: lures stop {cid})")
-    say("")
+        say(col("  │ ", "b") + col("▸ " + cid, "m") + "   " + col(c["phish_url"], "r") + col("   ← send to victim", "d"))
+        say(col("  │ ", "b") + col("   relays the real ", "d") + col(c["target"], "c")
+            + col("   ·   stop: ", "d") + col("lures stop " + cid, "c"))
+    say(col("  ╰" + "─" * 60, "b") + "\n")
 
 
 def cmd_console(args):
+    if sys.stdout.isatty():
+        os.system("cls" if os.name == "nt" else "clear")
     s = load_state()
     sm = _console_summary()
-    loot = (f"{sm['cookies']} cookies · {sm['credentials']} creds" if sm else "console offline (run `up`)")
-    nlures = len([c for c in s["campaigns"].values() if c.get("running")])
     con = KingnetConsole()
-    con.intro = (
-        "\n" + col("  ⚡ KINGNET", "c") + col("  — operator console", "d") +
-        f"\n  wallet {coin(s['coins'])}   ·   orgs {len(s['orgs'])}   ·   lures {nlures}   ·   loot {loot}" +
-        "\n  type " + col("help", "c") + " for commands, " + col("sessions follow", "c") +
-        " for a live feed, " + col("exit", "c") + " to quit\n")
+    con.intro = _console_banner(s, sm)
+    if not sm:
+        con.intro += ("  " + col("The lab isn't running yet.", "y") + "  Type "
+                      + col("up", "c") + " to start it (or " + col("play", "c")
+                      + " for a guided first campaign).\n")
     try:
         con.cmdloop()
     except KeyboardInterrupt:

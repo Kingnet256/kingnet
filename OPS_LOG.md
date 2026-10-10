@@ -1,6 +1,13 @@
 # KINGNET — Ops / Work Log
 _Newest on top. See DESIGN.md for the full plan._
 
+### 2026-10-10 — console glow-up: big banner, status panel, styled output, self-sufficient
+- **User feedback:** the console looked like the plain terminal — wanted entering it to feel like a real operator app (evilginx/msfconsole vibe) and the details (lures etc.) to look good.
+- **Entrance:** `kingnet console` / bare `./kingnet` now clears the screen and shows a big ANSI-art KINGNET banner, a subtitle, and a bordered status panel (LAB LIVE/OFFLINE · level · wallet · orgs/lures/loot with 🍪🔑🛡). Readline-safe coloured prompt `kingnet ❯`.
+- **Styled output:** boxed/bordered `help`, `lures` (▸ id · phishing URL · relays-real · stop), and `sessions` (bordered victim list with creds/2FA/cookie/takeover).
+- **Self-sufficient:** added `up`, `play`, `down`, `banner` commands inside the console; when the lab is offline the banner says so and tells you to type `up`/`play`.
+- **Resume after reboot:** `up` now `docker start`s your saved org/campaign containers (stopped containers were why nothing was reachable after a machine restart). Verified banner/help/lures rendering + parse.
+
 ### 2026-10-10 — Phase 4: interactive operator console (evilginx-style single app)
 - **User feedback:** separate one-shot commands feel like a demo; evilginx opens ONE interactive console (prompt, create lures, see sessions, help, everything in one app). Also their checkout was BEHIND origin (had router+contracts but not setup/play/phish-test/signup) → `git pull` needed; origin/main was verified current.
 - **`kingnet console`** (and bare `./kingnet` on a TTY) opens an interactive REPL (`cmd.Cmd`): prompt `kingnet » `, banner with wallet/orgs/lures/loot, grouped `help`. Commands: `sessions [follow]`, `lures [create|stop|test]`, `hijack <track>`, `targets`, `market`, `buy <org> <domain>`, `defend <domain> <control> on|off`, `world`, `wallet`, `missions`, `contracts`, `status`, `hosts`, `clear`, `exit`. Reuses the existing cmd_* via Namespaces. Verified via piped input (help/market/buy/lures/world/exit all work; buy+phish complete mission).
